@@ -1,6 +1,6 @@
 {
-  "recordedAtUTC": "2026-10-24T13:31:58.681880+00:00",
-  "scope": "Local production-workflow tests with simulated ports and synthetic GUI trees; no device or online model evaluation",
+  "recordedAtUTC": "2026-10-24T22:27:51.582108+00:00",
+  "scope": "Local workflow and touch-controller JVM tests with simulated ports and synthetic GUI; Android build/lint/signature only, no actual WindowManager/input or device evaluation",
   "environment": {
     "os": "Darwin",
     "architecture": "arm64",
@@ -8,7 +8,7 @@
     "gradle": "8.11.1"
   },
   "coreTests": {
-    "tests": 67,
+    "tests": 85,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -18,6 +18,7 @@
     "com.octopus.core.CoordinatorTest": 3,
     "com.octopus.core.GuiEvidenceTest": 16,
     "com.octopus.core.GuiNavigatorTest": 4,
+    "com.octopus.core.PreviewTouchTest": 18,
     "com.octopus.core.RulesTest": 23,
     "com.octopus.core.WorkflowTest": 16
   },
@@ -27,16 +28,16 @@
     "minSdk": 34,
     "targetSdk": 35,
     "artifact": "app/build/outputs/apk/debug/app-debug.apk",
-    "bytes": 25206014,
-    "sha256": "46acb1b9cca07e3c2778f7c1f0187087d11098bb2dae17650e3ed75df9e5d4c2"
+    "bytes": 25225310,
+    "sha256": "fa1a0c30efcb52ae59f19cd3318027fa413e6d59948fefbb92501a9e63380939"
   },
   "lint": {
     "status": "PASSED_WITH_WARNINGS",
     "severities": {
-      "Warning": 13
+      "Warning": 14
     },
     "issues": {
-      "PrivateApi": 2,
+      "PrivateApi": 3,
       "GradleDependency": 3,
       "ObsoleteSdkInt": 1,
       "UseKtx": 6,
@@ -72,9 +73,34 @@
   "onlineModelEvaluation": "NOT_RUN",
   "emailCalendarWorkflow": "IMPLEMENTED_AND_WIRED_NOT_DEVICE_VALIDATED",
   "githubCI": {
-    "frameworkConclusion": "PASSED",
-    "frameworkRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40094096071",
+    "previousWorkflowConclusion": "PASSED",
+    "previousWorkflowRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40098556788",
     "latestRuns": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions",
-    "note": "Local record; consult the commit run for current CI status"
+    "note": "Local record; consult the commit-specific Actions run for current CI status"
+  },
+  "overlayEvaluation": {
+    "mode": "PURE_JVM_TESTS_ANDROID_COMPILE_ONLY",
+    "suite": "com.octopus.core.PreviewTouchTest",
+    "tests": 18,
+    "verifiedLocally": [
+      "fit coordinates and letterboxing",
+      "resize invariant mapping",
+      "double tap reserved without App tap",
+      "single tap delay and reset",
+      "drag and hold routing",
+      "packet order identity and timestamps",
+      "whole gesture Broker admission",
+      "CANCEL before releasing lease",
+      "stale epoch rejection",
+      "no buffered replay on backpressure cancellation",
+      "independent second session",
+      "cancelled scope rejection",
+      "15 second timeout cleanup"
+    ],
+    "androidWindowManager": "NOT_RUN",
+    "nativeTouchInjection": "NOT_RUN",
+    "focusAndIme": "NOT_RUN",
+    "manualTextInputBridge": "NOT_IMPLEMENTED",
+    "multiTouch": "CANCEL_ONLY"
   }
 }

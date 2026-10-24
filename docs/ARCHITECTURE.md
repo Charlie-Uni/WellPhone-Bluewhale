@@ -12,7 +12,7 @@
 | CanonicalStore / WriteLedger | 固定提取快照、时区、来源身份、保存状态 | Android SQLite v2；旧写入记录显式迁移保留 |
 | GmailGuiPort / CalendarGuiPort | 标签搜索、正文读取、日历/Tasks 填写、重开证明 | Android；控件版本适配与可见证据待真机确认 |
 | ModelClient | 手机 HTTPS、严格 JSON 解码、单步响应 | 不预设厂商；未配置时拒绝执行 |
-| StatusCapsule / UserReviews | 状态胶囊、本地时间/冲突确认 | 已接入；只读预览在工作台，悬浮触摸与放大待实现 |
+| StatusCapsule / UserReviews | 状态胶囊、本地时间/冲突确认 | 已接入胶囊与虚拟屏小窗，人工触摸经过独立整段 Broker 准入 |
 | LoadGovernor | 主屏输入/帧负载的低频元数据→取帧/动作节奏 | core 策略；真机信号待接入 |
 | Journal | 单调时钟、sessionId/E/actionId、状态与耗时 | 不记录邮件正文、密钥、完整链接 |
 
@@ -36,9 +36,9 @@ stateDiagram-v2
   Human --> Stopped: 会话销毁
 ```
 
-新动作准入和计数原子完成。接管后的旧模型响应被 E 拒绝；系统已接受的动作不能撤销，排空结束前不授权人工。当前工作台可独立测试 A/B 撤销、排空与交还；单工作流遇到相关会话撤销会停止，不承诺另一个执行循环继续。原地触摸通道接入后，第一下接管手势不补发。关闭窗口不自动交还。用户把目标 App 打开到主屏导致绑定丢失时停掉失效会话，不追抢。
+新动作准入和计数原子完成。接管后的旧模型响应被 E 拒绝；系统已接受的动作不能撤销，排空结束前不授权人工。当前工作台可独立测试 A/B 撤销、排空与交还；单工作流遇到相关会话撤销会停止，不承诺另一个执行循环继续。小窗接管必须点击独立按钮；只读阶段的触摸不补发。关闭窗口不自动交还。用户把目标 App 打开到主屏导致绑定丢失时停掉失效会话，不追抢。
 
-胶囊使用非焦点悬浮窗口，仅显示状态。等待确认不会自动拉起前台；用户点击后才进入工作台的确认卡。当前不是可触摸虚拟屏小窗。普通 Activity 的生命周期也不保证长期后台驻留，进程退出后不自动恢复执行。
+胶囊与小窗都是非焦点悬浮窗口。用户点击胶囊查看现有虚拟屏，明确接管后才转发单指触摸；双击画面放大/缩小，隐藏不交还。确认卡由小窗“确认/设置”按钮进入。普通 Activity 的生命周期不保证长期后台驻留，进程退出后不自动恢复执行。详见 [触摸协议与边界](OVERLAY.md)。
 
 ## 事项与写入
 
@@ -76,7 +76,7 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 | CalendarPort | inspect / find / prepare / save / reopenAndVerify；准备票据绑定 sessionId/E 与 draftDigest |
 | CanonicalStore / WriteStore | 来源快照、CAS 写入状态；中断后重跑查询恢复 |
 | ObservationPort / ActionPort | SessionState → Observation；SessionToken + observation + Action → 是否受理 |
-| Shell AIDL | create/capture/close、bindControl、定向 calendarView/calendarInsert；无任意 shell 接口 |
+| Shell AIDL | create/capture/close、bindControl、定向日历 Intent、bindHuman/injectTouch；无任意 shell 接口 |
 
 默认流程串行读取 A、消费结构化事项到 B。会话与端口已为第二执行 Agent 留出边界；并行队列和独立重调度尚未实现。
 

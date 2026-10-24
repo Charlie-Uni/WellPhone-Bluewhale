@@ -11,5 +11,7 @@ interface IShellService {
     void bindControl(String handle, String sessionId, long epoch, boolean agentAllowed) = 5;
     void calendarView(String handle, String sessionId, long epoch, long millis) = 6;
     void calendarInsert(String handle, String sessionId, long epoch, String draftJson) = 7;
+    void bindHuman(String handle, String targetJson) = 8;
+    boolean injectTouch(String handle, String targetJson, String packetJson) = 9;
     void destroy() = 16777114;
 }

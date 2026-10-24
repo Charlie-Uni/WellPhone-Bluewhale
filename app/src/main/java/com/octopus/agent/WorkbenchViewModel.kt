@@ -1,6 +1,7 @@
 package com.octopus.agent
 
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.ParcelFileDescriptor
@@ -15,6 +16,7 @@ import com.octopus.core.*
 import com.octopus.agent.model.*
 import com.octopus.agent.storage.*
 import com.octopus.agent.workflow.*
+import com.octopus.agent.overlay.VirtualScreenOverlay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -23,12 +25,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.json.JSONObject
 import java.time.ZoneId
 import android.os.SystemClock
 
 data class ProbeSession(val label: String, val handle: String, val state: SessionState,
-    val flags: Int, val frame: Bitmap? = null, val nodeCount: Int? = null)
+    val flags: Int, val frame: Bitmap? = null, val nodeCount: Int? = null,
+    val width: Int = 720, val height: Int = 1280, val frameAt: Long = 0)
 data class WorkbenchState(
     val connected: Boolean = false, val busy: Boolean = false,
     val message: String = "连接 Shizuku 后开始平台预检",
@@ -44,10 +50,27 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
     private val connector = ShizukuConnector(application)
     private val preferences = WorkflowSettings(application)
     private val secrets = SecretStore(application)
-    private val capsule = StatusCapsule(application)
     private val mutableState = MutableStateFlow(WorkbenchState(model = preferences.model(), config = preferences.config(),
         keySaved = secrets.read() != null))
     val state = mutableState.asStateFlow()
+    private var forwardingTarget: TouchTarget? = null
+    private val humanWindows = mutableMapOf<String, Int>()
+    private val touches: HumanTouchController = HumanTouchController(app.broker, viewModelScope, HumanTouchSink(::injectHumanTouch),
+        SystemClock::uptimeMillis) { reason ->
+        mutableState.value = mutableState.value.copy(message = "$reason · 触摸已停止，请检查当前预览")
+        preview.showNotice("$reason · 触摸已停止，请重新检查画面")
+    }
+    private val preview: VirtualScreenOverlay = VirtualScreenOverlay(application, object : VirtualScreenOverlay.Callbacks {
+        override fun takeover(id: String) { probe(id)?.let(this@WorkbenchViewModel::takeover) }
+        override fun handBack(id: String) { probe(id)?.let(::returnControl) }
+        override fun touch(id: String, transform: PreviewTransform, effect: PreviewEffect) { previewTouch(id, transform, effect) }
+        override fun cancelTouch() { forwardingTarget = null; touches.cancel() }
+        override fun openWorkbench() {
+            application.startActivity(Intent(application, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        }
+    })
+    private val capsule = StatusCapsule(application) { openPreview() }
     private var execution: Job? = null
     private val reviews = UserReviews(app.broker) { question ->
         mutableState.value = mutableState.value.copy(question = question)
@@ -57,11 +80,13 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             connector.service.collect { service ->
                 if (service == null) {
+                    preview.hide()
                     execution?.cancel()
                     reviews.cancel()
                     mutableState.value.sessions.forEach { app.broker.stop(it.state.token.sessionId) }
                     mutableState.value = mutableState.value.copy(connected = false, sessions = emptyList(), running = false,
                         message = "未连接。shell 断开后旧会话停止，不自动恢复。")
+                    publishPreview()
                 } else {
                     mutableState.value = mutableState.value.copy(connected = true,
                         message = "已连接 shell；创建虚拟屏后仍需验证主屏焦点与输入法")
@@ -83,8 +108,10 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
                     val settledState = app.broker.state(probe.state.token.sessionId)
                     // Avoid publishing an old frame after the session has been removed.
                     mutableState.value = mutableState.value.copy(sessions = mutableState.value.sessions.map {
-                        if (it.handle == probe.handle) it.copy(frame = bitmap ?: it.frame, state = settledState) else it
+                        if (it.handle == probe.handle) it.copy(frame = bitmap ?: it.frame, state = settledState,
+                            frameAt = if (bitmap != null) SystemClock.uptimeMillis() else it.frameAt) else it
                     })
+                    publishPreview()
                 }
             }
         }
@@ -101,8 +128,10 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
             throw failure
         }
         mutableState.value = mutableState.value.copy(sessions = mutableState.value.sessions +
-            ProbeSession(if (calendar) "B · 日历" else "A · 邮箱", handle, session, result.getInt("effectiveFlags")),
+            ProbeSession(if (calendar) "B · 日历" else "A · 邮箱", handle, session, result.getInt("effectiveFlags"),
+                width = result.getInt("width"), height = result.getInt("height")),
             message = "已创建 display ${session.displayId}；隔离行为待真机测试。不会自动打开 App。")
+        publishPreview()
     }
     fun launch(probe: ProbeSession) = work {
         val service = requireNotNull(connector.service.value)
@@ -130,10 +159,12 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         app.store.record(AgentEvent("TAKEOVER_REQUESTED", state.token.sessionId, state.token.epoch))
         refreshSession(probe)
         mutableState.value = mutableState.value.copy(message =
-            if (state.owner == Owner.HUMAN) "已撤销 Agent 权限；原地人工触摸通道尚待实现"
+            if (state.owner == Owner.HUMAN) "已接管；可在悬浮小窗中原地操作"
             else "正在等待已提交输入结束；暂不允许人工输入")
     }
     fun returnControl(probe: ProbeSession) = work {
+        forwardingTarget = null
+        touches.cancelAndJoin()
         val returned = app.broker.returnControl(app.broker.state(probe.state.token.sessionId).token)
         withContext(Dispatchers.IO) {
             connector.service.value?.bindControl(probe.handle, returned.token.sessionId, returned.token.epoch, true)
@@ -146,12 +177,70 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         check(stopped.inFlight == 0) { "Wait for in-flight input before display release" }
         withContext(Dispatchers.IO) { connector.service.value?.closeDisplay(probe.handle) }
         mutableState.value = mutableState.value.copy(sessions = mutableState.value.sessions.filter { it.handle != probe.handle })
+        publishPreview()
     }
     private suspend fun refreshSession(probe: ProbeSession) {
         val state = app.broker.state(probe.state.token.sessionId)
         mutableState.value = mutableState.value.copy(sessions = mutableState.value.sessions.map {
             if (it.handle == probe.handle) it.copy(state = state) else it
         })
+        publishPreview()
+    }
+    private fun probe(id: String) = mutableState.value.sessions.firstOrNull { it.state.token.sessionId == id }
+    private fun publishPreview() {
+        preview.update(mutableState.value.sessions.map {
+            VirtualScreenOverlay.Item(it.state.token.sessionId, it.label, it.state, it.frame, it.frameAt, it.width, it.height)
+        })
+    }
+    fun openPreview(id: String? = null) {
+        publishPreview()
+        if (!preview.show(id)) mutableState.value = mutableState.value.copy(message = "请先授予悬浮权限，再点击胶囊或打开小窗")
+    }
+    private fun previewTouch(id: String, transform: PreviewTransform, effect: PreviewEffect) {
+        val probe = probe(id) ?: return
+        val target = TouchTarget(probe.state.token, probe.state.displayId, probe.state.packageName,
+            transform.version, transform.displayWidth, transform.displayHeight)
+        if (effect == PreviewEffect.Cancel) { forwardingTarget = null; touches.cancel(); return }
+        if (!preview.isCurrent(target)) { forwardingTarget = null; touches.cancel(); return }
+        fun map(point: TouchPoint) = transform.map(point)
+        when (effect) {
+            is PreviewEffect.Tap -> map(effect.point)?.let {
+                if (touches.begin(target, it)) touches.end(it)
+            }
+            is PreviewEffect.Begin -> map(effect.point)?.let {
+                forwardingTarget = if (touches.begin(target, it)) target else null
+            }
+            is PreviewEffect.Move -> if (forwardingTarget == target) map(effect.point)?.let(touches::move)
+            is PreviewEffect.End -> if (forwardingTarget == target) {
+                map(effect.point)?.let(touches::end); forwardingTarget = null
+            }
+            else -> Unit
+        }
+    }
+    private suspend fun injectHumanTouch(target: TouchTarget, packet: TouchPacket): Boolean {
+        val probe = probe(target.token.sessionId) ?: return false
+        val service = connector.service.value ?: return false
+        if (packet.phase != TouchPhase.CANCEL) {
+            val authority = app.broker.state(target.token.sessionId)
+            check(authority.token == target.token && authority.owner == Owner.HUMAN && preview.isCurrent(target))
+            val window = requireNotNull(OctopusAccessibilityService.instance).touchWindowId(authority, packet.point)
+            if (packet.phase == TouchPhase.DOWN) humanWindows[packet.gestureId] = window
+            check(humanWindows[packet.gestureId] == window)
+        }
+        return try {
+            withContext(NonCancellable + Dispatchers.IO) {
+                val binding = Json.encodeToString(target)
+                if (packet.phase == TouchPhase.DOWN) service.bindHuman(probe.handle, binding)
+                service.injectTouch(probe.handle, binding, Json.encodeToString(packet))
+            }.also { accepted ->
+                if (accepted && packet.phase in setOf(TouchPhase.DOWN, TouchPhase.UP, TouchPhase.CANCEL)) {
+                    app.store.record(AgentEvent("HUMAN_${packet.phase}", target.token.sessionId, target.token.epoch,
+                        packet.gestureId, displayId = target.displayId, packageName = target.packageName))
+                }
+            }
+        } finally {
+            if (packet.phase == TouchPhase.UP || packet.phase == TouchPhase.CANCEL) humanWindows.remove(packet.gestureId)
+        }
     }
     private fun work(block: suspend () -> Unit) {
         if (mutableState.value.busy) return
@@ -251,6 +340,7 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun pauseWorkflow() {
+        forwardingTarget = null; touches.cancel()
         execution?.cancel(); reviews.cancel()
         viewModelScope.launch {
             for (probe in mutableState.value.sessions) {
@@ -263,5 +353,5 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
             capsule.update("已暂停 · 显式交还后可继续", mutableState.value.capsule)
         }
     }
-    override fun onCleared() { execution?.cancel(); reviews.cancel(); capsule.close(); connector.close(); super.onCleared() }
+    override fun onCleared() { execution?.cancel(); reviews.cancel(); preview.hide(); capsule.close(); connector.close(); super.onCleared() }
 }

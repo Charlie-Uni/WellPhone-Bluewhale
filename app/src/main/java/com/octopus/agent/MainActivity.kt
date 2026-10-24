@@ -116,7 +116,10 @@ class MainActivity : ComponentActivity() {
                         Text("显示小状态胶囊")
                         TextButton(onOverlay) { Text("授予悬浮权限") }
                     }
-                    Text("胶囊仅显示状态，点击后才打开确认页。模型接收经过筛选的文字控件；当前不上传原始截图。",
+                    OutlinedButton({ vm.openPreview() }) { Text("打开悬浮小窗") }
+                    Text("点击胶囊打开小窗，默认只读；明确接管后可单指操作，双击画面放大。确认/设置由小窗按钮打开。",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text("模型接收经过筛选的文字控件；当前不上传原始截图。",
                         style = MaterialTheme.typography.bodySmall)
                     Text("未指定提醒时，确定时间的事件默认提前 15 分钟提醒；截止型事项需明确提醒时间。",
                         style = MaterialTheme.typography.bodySmall)
@@ -151,14 +154,15 @@ class MainActivity : ComponentActivity() {
                             Text("等待虚拟屏帧")
                         } else Image(frame.asImageBitmap(), "${probe.label}真实预览",
                             Modifier.fillMaxWidth().height(320.dp), contentScale = ContentScale.Fit)
-                        Text("只读预览；当前不转发触摸", style = MaterialTheme.typography.bodySmall)
+                        Text("工作台预览只读；悬浮小窗支持接管后的单指触摸", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton({ vm.openPreview(probe.state.token.sessionId) }) { Text("在小窗查看此任务") }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton({ vm.launch(probe) }, enabled = !state.running && !state.busy && probe.state.owner != Owner.STOPPED) { Text("打开 App") }
                             OutlinedButton({ vm.observe(probe) }, enabled = !state.running && !state.busy && probe.state.owner != Owner.STOPPED) { Text("读控件") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (probe.state.owner == Owner.AGENT) {
-                                Button({ vm.takeover(probe) }, enabled = !state.busy) { Text("测试撤销控制权") }
+                                Button({ vm.takeover(probe) }, enabled = !state.busy) { Text("原地接管") }
                             } else if (probe.state.owner == Owner.HUMAN) {
                                 Button({ vm.returnControl(probe) }, enabled = !state.busy) { Text("交还 Agent") }
                             }
@@ -167,7 +171,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            Text("当前适配器需在真实 Gmail / Calendar 版本验证；界面不匹配会停止或等待确认。原地触摸与放大悬浮小窗另列后续。",
+            Text("小窗沿用原虚拟屏，隐藏不会自动交还或继续任务。虚拟屏输入法保持隐藏；本版不转发键盘或双指手势。设备和 App 兼容性待真机验证。",
                 style = MaterialTheme.typography.bodySmall)
         }
     }

@@ -14,6 +14,7 @@ import com.octopus.core.SessionState
 import com.octopus.core.UiElement
 import com.octopus.core.Owner
 import com.octopus.core.BindingLost
+import com.octopus.core.TouchPoint
 import com.octopus.agent.OctopusApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,6 +34,18 @@ class OctopusAccessibilityService : AccessibilityService(), ObservationPort, Act
     override fun onAccessibilityEvent(event: AccessibilityEvent?) { /* No main-screen content collection. */ }
     override fun onInterrupt() { snapshots.clear() }
     override fun onDestroy() { instance = null; snapshots.clear(); super.onDestroy() }
+
+    /** Fast local hit-window check for human input; system dialogs and main-screen roots fail closed. */
+    fun touchWindowId(session: SessionState, point: TouchPoint): Int {
+        require(session.displayId > 0 && session.owner == Owner.HUMAN)
+        if (instance !== this) throw BindingLost()
+        val window = windowsOnAllDisplays[session.displayId].orEmpty().filter {
+            val bounds = Rect().also(it::getBoundsInScreen)
+            bounds.contains(point.x.toInt(), point.y.toInt())
+        }.maxByOrNull { it.layer } ?: throw BindingLost()
+        if (window.root?.packageName?.toString() != session.packageName) throw BindingLost()
+        return window.id
+    }
 
     override suspend fun observe(session: SessionState): Observation = withContext(Dispatchers.Main.immediate) {
         require(session.displayId > 0)

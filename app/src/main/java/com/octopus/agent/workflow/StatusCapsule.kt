@@ -1,7 +1,6 @@
 package com.octopus.agent.workflow
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -9,10 +8,9 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
-import com.octopus.agent.MainActivity
 
-/** Optional status only. Opening the app requires an explicit user tap. */
-class StatusCapsule(private val context: Context) {
+/** Optional status. A user tap opens the existing virtual-screen preview. */
+class StatusCapsule(private val context: Context, private val onOpenPreview: () -> Unit) {
     private val manager = context.getSystemService(WindowManager::class.java)
     private var view: TextView? = null
     fun update(text: String, enabled: Boolean) {
@@ -22,10 +20,7 @@ class StatusCapsule(private val context: Context) {
                 setTextColor(Color.WHITE); textSize = 12f; gravity = Gravity.CENTER
                 setPadding(24, 12, 24, 12)
                 background = GradientDrawable().apply { setColor(Color.rgb(32,44,41)); cornerRadius = 48f }
-                setOnClickListener {
-                    context.startActivity(Intent(context, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-                }
+                setOnClickListener { onOpenPreview() }
             }
             val params = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
