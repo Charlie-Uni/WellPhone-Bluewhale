@@ -1,0 +1,15 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+.tooling/
+evaluation/runs/
+*.jks
+*.keystore
+.env
+secrets.properties
+__pycache__/
+*.pyc

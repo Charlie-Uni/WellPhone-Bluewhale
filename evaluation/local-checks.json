@@ -1,0 +1,46 @@
+{
+  "recordedAtUTC": "2026-10-24T11:57:35.431624+00:00",
+  "scope": "Local foundation checks only; no real device or online model evaluation",
+  "environment": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "jdk": "17.0.11",
+    "gradle": "8.11.1"
+  },
+  "coreTests": {
+    "tests": 31,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": {
+    "com.octopus.core.AgentTest": 5,
+    "com.octopus.core.CoordinatorTest": 3,
+    "com.octopus.core.RulesTest": 23
+  },
+  "androidBuild": {
+    "assembleDebug": "PASSED",
+    "signatureVerification": "PASSED",
+    "minSdk": 34,
+    "targetSdk": 35,
+    "artifact": "app/build/outputs/apk/debug/app-debug.apk",
+    "bytes": 24999790,
+    "sha256": "eb24340e6185113578cd5ff59dd3c96fbef2a8d5651a36a609ab6fa20db52257"
+  },
+  "lint": {
+    "status": "PASSED_WITH_WARNINGS",
+    "severities": {
+      "Warning": 9
+    },
+    "issues": {
+      "PrivateApi": 2,
+      "GradleDependency": 3,
+      "ObsoleteSdkInt": 1,
+      "UseKtx": 3
+    }
+  },
+  "deviceEvaluation": "SKIPPED_AT_USER_REQUEST",
+  "onlineModelEvaluation": "NOT_RUN",
+  "emailCalendarWorkflow": "NOT_CONNECTED",
+  "githubCI": "DEFINED_NOT_RUN"
+}
