@@ -1,0 +1,11 @@
+<resources>
+    <item name="status_capsule" type="id" />
+    <item name="overlay_root" type="id" />
+    <item name="overlay_header" type="id" />
+    <item name="overlay_preview" type="id" />
+    <item name="overlay_control" type="id" />
+    <item name="overlay_status" type="id" />
+    <item name="overlay_resize" type="id" />
+    <item name="overlay_settings" type="id" />
+    <item name="overlay_hide" type="id" />
+</resources>

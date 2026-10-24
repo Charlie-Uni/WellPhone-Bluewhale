@@ -9,6 +9,8 @@
 | kotlinx.serialization | 1.8.1 | https://github.com/Kotlin/kotlinx.serialization · Apache-2.0 |
 | AndroidX Compose / Activity / Lifecycle | 见 app/build.gradle.kts | https://android.googlesource.com/platform/frameworks/support/ · Apache-2.0 |
 | Shizuku API / provider | 13.1.5 | https://github.com/RikkaApps/Shizuku-API · Apache-2.0 |
+| Robolectric（仅测试） | 4.16.1 | https://github.com/robolectric/robolectric · MIT |
+| JUnit（Android 本地测试） | 4.13.2 | https://github.com/junit-team/junit4 · EPL-1.0 |
 
 本仓库未复制 scrcpy server 源码。若后续引入，固定 commit、审查并保留其 Apache-2.0 NOTICE 和相关组件许可。Android 隐藏常量适配必须指向对应 AOSP 版本，不能用不明来源二进制。
 

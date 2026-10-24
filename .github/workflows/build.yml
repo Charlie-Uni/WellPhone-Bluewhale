@@ -1,4 +1,4 @@
-name: Build and core checks
+name: Build and local checks
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -17,12 +17,14 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - run: ./gradlew :core:test :app:assembleDebug :app:lintDebug --console=plain
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --console=plain
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: reports-and-debug-apk
           path: |
             core/build/reports/tests/
+            app/build/reports/tests/
+            app/build/reports/overlay/
             app/build/reports/lint-results-debug.*
             app/build/outputs/apk/debug/*.apk

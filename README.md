@@ -4,7 +4,7 @@
 
 Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。
 
-**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实的代码路径，通过 85 项本地行为测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
+**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实的代码路径，通过 85 项 core 行为测试及 27 项 Robolectric Android 层测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
 ## 场景与第一版范围
 
@@ -87,7 +87,7 @@ tools/                  设备预检与日志统计
 ```bash
 # 配置 Android SDK 路径到 local.properties：sdk.dir=/your/android-sdk
 # 使用 JDK 17
-./gradlew :core:test :app:assembleDebug :app:lintDebug
+./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 ```
@@ -110,7 +110,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 双击预留给放大，因此单次点击约等待 300ms 才派发；拖动超过阈值后开始转发，长按需考虑本地识别与目标 App 的额外识别延迟。支持单指点击、拖动和按住，最长一段 15 秒；双指或队列拥塞取消。虚拟屏输入法仍隐藏，本版不转发键盘或提供文字输入桥接。工作台内的静态预览继续只读。
 
-以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入和 ROM 兼容性均待真机验收。普通 Activity/ViewModel 不保证长期后台驻留，进程退出后不自动恢复。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
+以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入和 ROM 兼容性均待真机验收。普通 Activity/ViewModel 不保证长期后台驻留，进程退出后不自动恢复。新增 19 项 SDK 35 窗口集成测试和 8 项 SDK 34/35 适配器契约测试；测试会输出小窗/放大窗口的合成画面渲染图。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
 
 ## 不打扰与隐私
 
@@ -124,7 +124,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 统一采用 [AC01–AC12](evaluation/README.md)。自动化单元测试与真实 App 验收分开报告，未测项标为“待验证”。真实评估比较无 Agent、固定频率、负载调速三组，每组至少三轮，统计结果正确率、核实完成时间、前台 jank、接管耗时、错误路由与重复写入。
 
-本地结果：**85 项 core 行为测试通过，调试 APK 构建与签名校验通过，lint 0 错误 / 14 条提示**。包括三封邮件产生两事件/一任务、冲突选择、重跑去重、保存回执丢失恢复、过期控制权拒绝和错误界面证据拦截。测试使用模拟端口或合成控件树检验生产逻辑，未操作真实 Gmail/Calendar，不能用于报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
+本地结果：**85 项 core 行为测试与 27 项 Android 层测试通过，调试 APK 构建与签名校验通过**。包括三封邮件产生两事件/一任务、冲突选择、重跑去重、保存回执丢失恢复、过期控制权拒绝和错误界面证据拦截。core 测试使用模拟端口与合成控件树；Android 层运行生产 View、MotionEvent 与 Handler，检查窗口事件和本地绘制。系统窗口服务、输入接收端及 MotionEvent 显示元数据由 Robolectric/专用 Shadow 模拟，未操作真实 Gmail/Calendar，不能用于报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
 
 交付物：可构建仓库、APK、完整原始录屏与 90–120 秒演示、实测结果、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。当前不报告设备成功率和性能收益。
 

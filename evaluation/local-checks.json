@@ -1,6 +1,6 @@
 {
-  "recordedAtUTC": "2026-10-24T22:27:51.582108+00:00",
-  "scope": "Local workflow and touch-controller JVM tests with simulated ports and synthetic GUI; Android build/lint/signature only, no actual WindowManager/input or device evaluation",
+  "recordedAtUTC": "2026-10-24T23:23:05.883641+00:00",
+  "scope": "Local core tests + Robolectric production Android View and adapter contract tests; shadowed system services, no emulator/device/online model evaluation",
   "environment": {
     "os": "Darwin",
     "architecture": "arm64",
@@ -28,8 +28,8 @@
     "minSdk": 34,
     "targetSdk": 35,
     "artifact": "app/build/outputs/apk/debug/app-debug.apk",
-    "bytes": 25225310,
-    "sha256": "fa1a0c30efcb52ae59f19cd3318027fa413e6d59948fefbb92501a9e63380939"
+    "bytes": 25050239,
+    "sha256": "f955f6fbf13cada4812af820cce541037c5ec1a294c916670bb28483ee74afb0"
   },
   "lint": {
     "status": "PASSED_WITH_WARNINGS",
@@ -73,13 +73,13 @@
   "onlineModelEvaluation": "NOT_RUN",
   "emailCalendarWorkflow": "IMPLEMENTED_AND_WIRED_NOT_DEVICE_VALIDATED",
   "githubCI": {
-    "previousWorkflowConclusion": "PASSED",
-    "previousWorkflowRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40098556788",
+    "previousRunConclusion": "PASSED",
+    "previousRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40138755849",
     "latestRuns": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions",
-    "note": "Local record; consult the commit-specific Actions run for current CI status"
+    "note": "Local evidence record; consult commit-specific CI for the current remote result"
   },
   "overlayEvaluation": {
-    "mode": "PURE_JVM_TESTS_ANDROID_COMPILE_ONLY",
+    "mode": "CORE_AND_ROBOLECTRIC_VIEWS_AND_ADAPTER_CONTRACTS",
     "suite": "com.octopus.core.PreviewTouchTest",
     "tests": 18,
     "verifiedLocally": [
@@ -97,10 +97,45 @@
       "cancelled scope rejection",
       "15 second timeout cleanup"
     ],
-    "androidWindowManager": "NOT_RUN",
+    "androidWindowManager": "ROBOLECTRIC_SHADOW_WINDOW_SERVICE_PASSED",
     "nativeTouchInjection": "NOT_RUN",
     "focusAndIme": "NOT_RUN",
     "manualTextInputBridge": "NOT_IMPLEMENTED",
-    "multiTouch": "CANCEL_ONLY"
+    "multiTouch": "CANCEL_ONLY",
+    "adapterReflectionAndArguments": "PASSED_SDK34_35_WITH_SHADOWED_DELIVERY_AND_DISPLAY_METADATA",
+    "renders": [
+      {
+        "artifact": "app/build/reports/overlay/compact.png",
+        "source": "SYNTHETIC_FRAME_ROBOLECTRIC_NATIVE_GRAPHICS",
+        "bytes": 48445,
+        "sha256": "61e3b56d08a2e1874887a43e9f65dc8f8c9cde6a35b85a57418138eb0a2b04b8"
+      },
+      {
+        "artifact": "app/build/reports/overlay/expanded.png",
+        "source": "SYNTHETIC_FRAME_ROBOLECTRIC_NATIVE_GRAPHICS",
+        "bytes": 61948,
+        "sha256": "583635ebed6e1303cfdb533ee7cedd0cfa5569bf142fb672f2a5354a71628402"
+      }
+    ]
+  },
+  "androidUiTests": {
+    "tests": 27,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": {
+      "com.octopus.agent.bridge.DisplayTouchInjectorTest": 8,
+      "com.octopus.agent.overlay.OverlayIntegrationTest": 19
+    },
+    "robolectric": "4.16.1",
+    "windowSdk": 35,
+    "adapterSdks": [
+      34,
+      35
+    ],
+    "graphics": "NATIVE_SKIA_WITH_SYNTHETIC_PREVIEW",
+    "systemServices": "SHADOWED",
+    "motionEventDisplayMetadata": "EXPLICIT_TEST_SHADOW",
+    "scope": "Production views/handlers/reflection/argument construction; test-driven ownership and recorded callbacks, no real ViewModel/Shizuku/App integration"
   }
 }

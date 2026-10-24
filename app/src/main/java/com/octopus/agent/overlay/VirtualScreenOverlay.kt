@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.view.*
 import android.widget.*
 import com.octopus.core.*
+import com.octopus.agent.R
 
 private class DragHandle(context: Context) : TextView(context) {
     override fun performClick(): Boolean { super.performClick();return true }
@@ -65,12 +66,14 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
         if (selected == null) selected = items.firstOrNull()?.id
         if (root != null) { render(); return true }
         val column = LinearLayout(context).apply {
+            this.id = R.id.overlay_root
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(6), dp(8), dp(8))
             background = GradientDrawable().apply { setColor(Color.rgb(245,243,238)); cornerRadius = dp(16).toFloat() }
             elevation = dp(8).toFloat()
         }
         val header = DragHandle(context).apply {
+            this.id = R.id.overlay_header
             text = "✳ 八爪鱼  ·  拖动此栏移动"; textSize = 13f; setTextColor(Color.rgb(32,44,41))
             setPadding(dp(4),dp(6),dp(4),dp(6))
         }
@@ -92,9 +95,12 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
             }
         })
         tabs=LinearLayout(context).also { column.addView(it) }
-        stateText=TextView(context).apply { textSize=12f;setTextColor(Color.DKGRAY) }.also { column.addView(it) }
-        preview=Preview(context).also { column.addView(it,LinearLayout.LayoutParams(-1,0,1f)) }
+        stateText=TextView(context).apply { this.id=R.id.overlay_status;textSize=12f;setTextColor(Color.DKGRAY) }.also { column.addView(it) }
+        preview=Preview(context).apply {
+            this.id=R.id.overlay_preview;contentDescription="当前任务虚拟屏预览，双击放大或缩小"
+        }.also { column.addView(it,LinearLayout.LayoutParams(-1,0,1f)) }
         control=Button(context).also { button ->
+            button.id=R.id.overlay_control
             button.textSize=12f
             button.setOnClickListener {
                 resetInput()
@@ -103,13 +109,13 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
             column.addView(button,LinearLayout.LayoutParams(-1,dp(44)))
         }
         val footer=LinearLayout(context)
-        fun footerButton(text: String, action: () -> Unit) {
-            footer.addView(Button(context).apply { this.text=text;textSize=11f;setPadding(0,0,0,0);setOnClickListener { action() } },
+        fun footerButton(id: Int, text: String, action: () -> Unit) {
+            footer.addView(Button(context).apply { this.id=id;this.text=text;textSize=11f;setPadding(0,0,0,0);setOnClickListener { action() } },
                 LinearLayout.LayoutParams(0,dp(42),1f))
         }
-        footerButton("放大/缩小") { toggleSize() }
-        footerButton("确认/设置") { resetInput();callbacks.openWorkbench() }
-        footerButton("隐藏") { hide() }
+        footerButton(R.id.overlay_resize,"放大/缩小") { toggleSize() }
+        footerButton(R.id.overlay_settings,"确认/设置") { resetInput();callbacks.openWorkbench() }
+        footerButton(R.id.overlay_hide,"隐藏") { hide() }
         column.addView(footer)
         val window=WindowManager.LayoutParams(1,1,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,

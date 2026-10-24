@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import com.octopus.agent.R
 
 /** Optional status. A user tap opens the existing virtual-screen preview. */
 class StatusCapsule(private val context: Context, private val onOpenPreview: () -> Unit) {
@@ -17,6 +18,7 @@ class StatusCapsule(private val context: Context, private val onOpenPreview: () 
         if (!enabled || !Settings.canDrawOverlays(context)) { close(); return }
         if (view == null) {
             val label = TextView(context).apply {
+                id = R.id.status_capsule
                 setTextColor(Color.WHITE); textSize = 12f; gravity = Gravity.CENTER
                 setPadding(24, 12, 24, 12)
                 background = GradientDrawable().apply { setColor(Color.rgb(32,44,41)); cornerRadius = 48f }
