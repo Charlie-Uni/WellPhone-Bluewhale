@@ -5,7 +5,7 @@ data class MailMetadata(val sender: String, val subject: String)
 
 object PrivacyGate {
     // Conservative prefilter, not a universal secret detector. User-selected scope is required.
-    private val sensitive = Regex("验证码|动态口令|一次性密码|重置密码|登录验证|校验码|verification code|one.time (password|code)|password reset|sign.in code|\\botp\\b", RegexOption.IGNORE_CASE)
+    private val sensitive = Regex("验证码|动态口令|一次性密码|重置密码|登录验证|校验码|临时密码|初始密码|登录密码|账号密码|账户密码|访问令牌|密钥|verification code|one.time (password|code)|password reset|sign.in code|temporary password|initial password|password\\s*[:：=]|access[_ -]?token|api[_ -]?key|client[_ -]?secret|\\botp\\b", RegexOption.IGNORE_CASE)
     private val recruitment = Regex("面试|笔试|补充材料|招聘|interview|assessment|recruit|application.*(material|document)", RegexOption.IGNORE_CASE)
     fun classify(metadata: MailMetadata, userSelectedScope: Boolean): MailAccess {
         val text = metadata.sender + " " + metadata.subject

@@ -2,7 +2,9 @@
 
 在用户继续使用手机时，读取招聘邮件，将面试、笔试和补充材料事项整理到自己的日历与提醒中。
 
-Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。当前从空仓库开始建设，**尚未完成邮件到日历的真机闭环**；本文中的架构是实现约束，完成状态见 [TASKS.md](TASKS.md)。
+Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。
+
+**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实的代码路径，通过 67 项本地行为测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
 ## 场景与第一版范围
 
@@ -11,13 +13,13 @@ Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是
 - 确定起止时间的面试、笔试 → 日历事件与提醒。
 - 截止事项 → 任务提醒，分别记录截止时间和提醒时间。
 - 北京时间 → 用户本地 Australia/Sydney，按事件日期处理夏令时，备注保留原文。
-- 时间不明确、低置信度、日程冲突 → 胶囊中的确认卡。冲突允许“两个都保留 / 新事项标为待改约 / 只设提醒”。
+- 时间不明确、低置信度、日程冲突 → 本地确认卡；胶囊提示等待确认，由用户点击进入。冲突允许“两个都保留 / 新事项标为待改约 / 只设提醒”。
 - 创建前查重，保存后离开并重新打开记录核实；保存结果未知时先查询。
-- 小窗原地接管后台 App，用户修改后明确交还 Agent。
+- 会话独立撤销与交还已实现；小窗原地触摸接管、双击放大列入下一阶段。
 
 候选 App 为 Gmail 和 Google Calendar（含 Tasks 界面）。Android 15/16 原生或接近原生系统优先，Android 14 为最低编译支持范围，**不代表已验证兼容**。登录、权限准备由用户完成。普通用户通过 Shizuku 无线调试配对启动 shell 服务，手机直接访问模型 API；电脑用于开发、观测与录屏。
 
-用户提供的候选真机是 **华为 Mate 60 Pro，系统分支与版本待确认**。必须先验证普通 APK、ADB、Shizuku、实际 Android API level 与显示隔离能力；能通过兼容容器运行某个 Android App，不能直接推断宿主系统提供这些接口。当前不为兼容它而降级焦点隔离要求。
+候选真机是 **华为 Mate 60 Pro，系统分支与版本待确认**。按用户要求跳过设备确认与实测；设备准入仍保留普通 APK、ADB、Shizuku、实际 Android API level 与显示隔离检查。
 
 本次暂不包含招聘 App 筛选、支付、自动回信、自动扫描新邮件、复杂动画、ETA、前台协作模式、Root、通用任意 App 控制。API/IMAP 读邮件仅作为未来可选对照组。
 
@@ -25,24 +27,28 @@ Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是
 
 ```mermaid
 flowchart TB
-  User[用户：主屏持续使用手机] --> Capsule[小胶囊 / 只读小窗 / 原地接管]
-  Capsule --> Coordinator[普通代码 Coordinator]
-  Coordinator --> Runner[单执行 Agent：观察 → 决策 → 动作 → 核实]
-  Runner --> Privacy[本地隐私筛选与出站检查]
+  User[用户：主屏继续使用手机] --> Capsule[状态胶囊：用户点击进入工作台]
+  Capsule --> Workflow[普通代码 MailCalendarWorkflow]
+  Workflow --> Plan[开始时一次计划调用]
+  Workflow --> Extract[招聘邮件提取 / 本地时间证据检查]
+  Workflow --> Review[本地时间与冲突确认]
+  Workflow --> Ledger[规范事项快照 / 写入 Ledger]
+  Workflow --> Runner[单执行 Agent · GuiNavigator]
+  Runner --> Privacy[压缩控件树 / 本地隐私投影]
   Privacy --> Model[手机直连模型 HTTPS]
   Model --> Runner
-  Runner --> Broker[SessionBroker：sessionId + E + 单写者]
-  Capsule --> Broker
-  Broker --> A11y[按 displayId / window / package 定位无障碍控件]
-  Broker --> Shell[Shizuku UserService · shell UID 2000]
-  Shell --> A[虚拟屏 A：邮箱]
-  Shell --> B[虚拟屏 B：日历 · 唯一写入者]
-  Coordinator --> Items[事项 / 时区 / 确认 / 去重 / 写入核实]
-  Broker --> Journal[脱敏日志与指标]
-  Governor[主屏负载调速] --> Runner
+  Runner --> Broker[SessionBroker：sessionId + E]
+  Broker --> A11y[按 display / window / package 操作节点]
+  Broker --> Shell[Shizuku · shell UID 2000 · 定向 Intent]
+  Shell --> A[虚拟屏 A · Gmail]
+  Shell --> B[虚拟屏 B · Calendar / Tasks]
+  A11y --> A
+  A11y --> B
+  Workflow --> Proof[离开编辑页 → 搜索 → 重开 → 本地核实]
+  Broker --> Journal[脱敏日志]
 ```
 
-一名 Agent 可以轮流推进两个会话；这不声称两名 Agent 同时操作。首先验收“主屏用户与后台任务并行”。双执行 Agent 为后续受控实验：A 读邮件，B 预读日历和写入，共享结构化队列，日历保持唯一写入者。
+默认一名执行 Agent：先读授权范围，再逐项在 B 创建；A/B 分别拥有 sessionId、E 和窗口绑定。应用级 Mutex 保证日历只有一个写入者。首先验收“主屏用户与后台任务并行”；双执行 Agent、主屏负载信号和调速接入留待后续实验。
 
 | 选择 | 原因与代价 |
 | --- | --- |
@@ -55,11 +61,22 @@ flowchart TB
 
 完整边界、接口、路线比较见 [架构设计](docs/ARCHITECTURE.md)，实现顺序见 [任务清单](TASKS.md)。
 
+## 邮件到日历如何闭环
+
+1. 每轮明确账号、招聘标签、目标日历和任务列表。Gmail GUI 搜索先填文本、再单独提交；在本地确认真实预览中的账号和标签。
+2. 本地筛选招聘候选与敏感内容，再把脱敏正文交给模型提取。来源由手机绑定，规范事项持久化，重跑不重新生成身份。
+3. 独立时间检查器核对原文与模型 UTC 结果。自动核对目前仅支持明确的北京时间、绝对日期和 24 小时时间；其他表达交人工确认。悉尼按事件日期采用 IANA 夏令时规则。
+4. 先按备注中的来源标记查重。日程覆盖不完整也需要用户确认；冲突选择绑定事项及可见忙碌区间，发生变化重新询问。旧日程保持原样。
+5. 事件经定向 `ACTION_INSERT` 预填，再 GUI 核对；任务经 Tasks GUI 填写。模型不能点击 Save、操作完成复选框或用编辑框回车绕过保存门。普通代码先持久化 `WRITE_PENDING`，再执行一次最终保存。
+6. 离开编辑页，提交标记搜索并重新打开结果。本地核对账户、目标日历/列表、标题、日期、时间、提醒和完整备注；未满足证据写 `UNKNOWN`。重跑先查真实记录，保存回执未知时不自动补点 Save。
+
+GUI 适配器尚未在指定 App 版本验证。每轮默认最多读取 **3 封可见且能识别的候选邮件**，不遍历全部历史邮件；缺完整发送时间需本地补充确认。详情缺年份、账户或提醒字段，搜索不支持标记，以及控件树截断，都可能使流程停止或保持未知。标记查重覆盖本应用创建的事项；无标记的手工事件按时间冲突处理。当前不验证云同步与通知实际触发。
+
 ## 目录与运行
 
 ```text
-app/                    Android 设置、Shizuku、虚拟屏探针、无障碍、模型连接、存储
-core/                   事项、时区、隐私、会话仲裁、Agent 循环、写入状态机
+app/                    配置/确认页、胶囊、Shizuku、GUI 端口、模型、SQLite/Keystore
+core/                   生产工作流、时间证据、GUI 核实、会话仲裁、写入状态机与测试
 docs/                   架构、AI 协作记录
 evaluation/             AC01–AC12、测试邮件、真实设备结果（未采集）
 tools/                  设备预检与日志统计
@@ -75,9 +92,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 ```
 
-手机准备：开发者选项、无线调试与 Shizuku 配对；每次重启后重新启动 Shizuku；手动启用八爪鱼无障碍服务。小米等 ROM 的额外“USB 调试（安全设置）”要求待实测。悬浮窗仅在小窗功能实现并主动开启时申请。无需 Root、无需切换输入法。
+手机准备：开发者选项、无线调试与 Shizuku 配对；每次重启后重新启动 Shizuku；手动启用八爪鱼无障碍服务。小米等 ROM 的额外“USB 调试（安全设置）”要求待实测。可选状态胶囊需要悬浮权限；没有该权限仍可使用工作台。无需 Root、无需切换输入法。
 
-**开发工作台不是已完成产品。** 显示创建成功只证明拿到了虚拟屏；有效隔离 flags、前台中文输入、声音与弹窗仍须真机验证。当前不允许未经验证的后台自动写入。
+工作台配置步骤：
+
+1. 连接 Shizuku、开启无障碍，创建 A/B，在真实预览中完成 Gmail/Calendar 登录和必要权限准备。
+2. 填写模型完整 HTTPS Chat Completions 地址、模型名称和 API Key；服务须支持 JSON object 响应。保存后密钥只留在手机 Keystore 加密存储中。尚未在线验证任何供应商。
+3. 填写与 App 界面一致的账号、招聘标签、日历名称和任务列表名称，输入目标；本轮勾选授权，开始整理。
+4. 胶囊只提示计划/状态，不自动拉起前台。点击后在工作台处理确认卡。暂停会撤销 E；显式交还后重新开始，通过持久化快照和查询恢复。
+
+首次设备实验使用专用测试标签和日历。显示创建成功只证明拿到了虚拟屏；有效 flags、前台中文输入、声音和弹窗仍须单独验证。
 
 ## 不打扰与隐私
 
@@ -91,7 +115,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 统一采用 [AC01–AC12](evaluation/README.md)。自动化单元测试与真实 App 验收分开报告，未测项标为“待验证”。真实评估比较无 Agent、固定频率、负载调速三组，每组至少三轮，统计结果正确率、核实完成时间、前台 jank、接管耗时、错误路由与重复写入。
 
-第一阶段本地结果：**31 项 core 测试通过，调试 APK 构建与签名校验通过，lint 0 错误 / 9 条提示**。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。当前 App 是平台预检工作台，邮件自动执行、原地触摸接管与灵动岛小窗尚未接通；真机测试按用户要求暂缓。
+本地结果：**67 项 core 行为测试通过，调试 APK 构建与签名校验通过，lint 0 错误 / 13 条提示**。包括三封邮件产生两事件/一任务、冲突选择、重跑去重、保存回执丢失恢复、过期控制权拒绝和错误界面证据拦截。测试使用模拟端口或合成控件树检验生产逻辑，未操作真实 Gmail/Calendar，不能用于报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
 
 交付物：可构建仓库、APK、完整原始录屏与 90–120 秒演示、实测结果、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。当前不报告设备成功率和性能收益。
 

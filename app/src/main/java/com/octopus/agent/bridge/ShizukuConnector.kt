@@ -13,7 +13,7 @@ class ShizukuConnector(context: Context) {
     private val mutableService = MutableStateFlow<IShellService?>(null)
     val service = mutableService.asStateFlow()
     private val args = Shizuku.UserServiceArgs(ComponentName(context, ShellService::class.java))
-        .daemon(false).processNameSuffix("shell").debuggable(false).version(1)
+        .daemon(false).processNameSuffix("shell").debuggable(false).version(2)
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             mutableService.value = IShellService.Stub.asInterface(binder)

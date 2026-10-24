@@ -8,11 +8,15 @@ import java.util.UUID
 @Serializable data class UiElement(
     val id: Int, val role: String, val text: String, val description: String = "",
     val clickable: Boolean = false, val editable: Boolean = false, val scrollable: Boolean = false,
+    val resourceId: String = "", val parentId: Int? = null,
+    val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 0,
+    val checkable: Boolean = false,
 )
 @Serializable data class Observation(
     val token: SessionToken, val observationId: String, val displayId: Int,
     val windowId: Int, val packageName: String, val capturedAtMillis: Long,
     val elements: List<UiElement>,
+    val truncated: Boolean = false,
 )
 @Serializable sealed interface Action {
     @Serializable @SerialName("click") data class Click(val nodeId: Int) : Action
@@ -33,6 +37,7 @@ fun interface EventJournal { fun record(event: AgentEvent) }
 @Serializable data class AgentEvent(
     val kind: String, val sessionId: String, val epoch: Long,
     val actionId: String? = null, val elapsedMillis: Long? = null,
+    val displayId: Int? = null, val packageName: String? = null,
 )
 data class RunOutcome(val reason: String, val steps: Int, val requestedBoundary: String? = null)
 

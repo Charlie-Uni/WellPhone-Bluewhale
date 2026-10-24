@@ -1,6 +1,6 @@
 {
-  "recordedAtUTC": "2026-10-24T11:57:35.431624+00:00",
-  "scope": "Local foundation checks only; no real device or online model evaluation",
+  "recordedAtUTC": "2026-10-24T13:31:58.681880+00:00",
+  "scope": "Local production-workflow tests with simulated ports and synthetic GUI trees; no device or online model evaluation",
   "environment": {
     "os": "Darwin",
     "architecture": "arm64",
@@ -8,7 +8,7 @@
     "gradle": "8.11.1"
   },
   "coreTests": {
-    "tests": 31,
+    "tests": 67,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -16,7 +16,10 @@
   "suites": {
     "com.octopus.core.AgentTest": 5,
     "com.octopus.core.CoordinatorTest": 3,
-    "com.octopus.core.RulesTest": 23
+    "com.octopus.core.GuiEvidenceTest": 16,
+    "com.octopus.core.GuiNavigatorTest": 4,
+    "com.octopus.core.RulesTest": 23,
+    "com.octopus.core.WorkflowTest": 16
   },
   "androidBuild": {
     "assembleDebug": "PASSED",
@@ -24,23 +27,54 @@
     "minSdk": 34,
     "targetSdk": 35,
     "artifact": "app/build/outputs/apk/debug/app-debug.apk",
-    "bytes": 24999790,
-    "sha256": "eb24340e6185113578cd5ff59dd3c96fbef2a8d5651a36a609ab6fa20db52257"
+    "bytes": 25206014,
+    "sha256": "46acb1b9cca07e3c2778f7c1f0187087d11098bb2dae17650e3ed75df9e5d4c2"
   },
   "lint": {
     "status": "PASSED_WITH_WARNINGS",
     "severities": {
-      "Warning": 9
+      "Warning": 13
     },
     "issues": {
       "PrivateApi": 2,
       "GradleDependency": 3,
       "ObsoleteSdkInt": 1,
-      "UseKtx": 3
+      "UseKtx": 6,
+      "SetTextI18n": 1
     }
+  },
+  "workflowEvaluation": {
+    "mode": "SIMULATED_PORTS_AND_SYNTHETIC_GUI_ONLY",
+    "fixture": "evaluation/fixtures/mail-scenarios.json",
+    "fixtureScenario": {
+      "inputMails": 3,
+      "verifiedInFakeTarget": 3,
+      "events": 2,
+      "tasks": 1,
+      "conflictChoices": 1
+    },
+    "rerun": "CANONICAL_EXTRACTION_REUSED_NO_EXTRA_SAVE",
+    "saveAckLoss": "UNKNOWN_THEN_QUERY_VERIFIED_NO_SAVE_REPLAY",
+    "negativeCases": [
+      "unreopened proof",
+      "unknown lookup",
+      "deleted verified record",
+      "fabricated evidence",
+      "unauthorized scope",
+      "OTP mail",
+      "wrong normalized time/zone",
+      "wrong date/meridiem/account",
+      "missing notes",
+      "stale UI and control epoch"
+    ]
   },
   "deviceEvaluation": "SKIPPED_AT_USER_REQUEST",
   "onlineModelEvaluation": "NOT_RUN",
-  "emailCalendarWorkflow": "NOT_CONNECTED",
-  "githubCI": "DEFINED_NOT_RUN"
+  "emailCalendarWorkflow": "IMPLEMENTED_AND_WIRED_NOT_DEVICE_VALIDATED",
+  "githubCI": {
+    "frameworkConclusion": "PASSED",
+    "frameworkRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40094096071",
+    "latestRuns": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions",
+    "note": "Local record; consult the commit run for current CI status"
+  }
 }

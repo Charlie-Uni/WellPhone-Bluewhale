@@ -3,6 +3,7 @@ package com.octopus.agent.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.os.Bundle
 import android.os.SystemClock
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.octopus.core.Action
@@ -42,21 +43,28 @@ class OctopusAccessibilityService : AccessibilityService(), ObservationPort, Act
         val root = window.root ?: throw BindingLost()
         val elements = mutableListOf<UiElement>()
         val refs = mutableMapOf<Int, NodeRef>()
-        fun walk(node: AccessibilityNodeInfo, path: List<Int>, depth: Int) {
-            if (elements.size >= 200 || depth > 25 || node.isPassword) return
+        var truncated = false
+        fun walk(node: AccessibilityNodeInfo, path: List<Int>, depth: Int, parent: Int?) {
+            if (elements.size >= 500 || depth > 30) { truncated = true; return }
+            if (node.isPassword) return
+            var nextParent = parent
             if (node.isVisibleToUser && (node.text != null || node.contentDescription != null ||
                     node.isClickable || node.isEditable || node.isScrollable)) {
                 val id = elements.size + 1
-                elements += UiElement(id, node.className?.toString().orEmpty(), node.text?.toString().orEmpty().take(4_000),
+                val bounds = Rect().also { node.getBoundsInScreen(it) }
+                if ((node.text?.length ?: 0) > 24_000) truncated = true
+                elements += UiElement(id, node.className?.toString().orEmpty(), node.text?.toString().orEmpty().take(24_000),
                     node.contentDescription?.toString().orEmpty().take(1_000),
-                    node.isClickable, node.isEditable, node.isScrollable)
+                    node.isClickable, node.isEditable, node.isScrollable, node.viewIdResourceName.orEmpty(),
+                    parent, bounds.left, bounds.top, bounds.right, bounds.bottom, node.isCheckable)
                 refs[id] = NodeRef(path, node.viewIdResourceName, node.className?.toString(), node.text?.toString())
+                nextParent = id
             }
-            for (index in 0 until node.childCount) node.getChild(index)?.let { walk(it, path + index, depth + 1) }
+            for (index in 0 until node.childCount) node.getChild(index)?.let { walk(it, path + index, depth + 1, nextParent) }
         }
-        walk(root, emptyList(), 0)
+        walk(root, emptyList(), 0, null)
         val observation = Observation(session.token, UUID.randomUUID().toString(), session.displayId,
-            window.id, session.packageName, SystemClock.elapsedRealtime(), elements)
+            window.id, session.packageName, SystemClock.elapsedRealtime(), elements, truncated)
         snapshots[session.token.sessionId] = Snapshot(observation, refs)
         observation
     }

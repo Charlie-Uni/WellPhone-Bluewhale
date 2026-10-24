@@ -18,6 +18,10 @@ import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
+import com.octopus.core.CalendarDraft
+import com.octopus.core.TargetKind
+import kotlinx.serialization.json.Json
+import java.time.Instant
 
 /**
  * Shizuku UserService, not an Android Service. UID must be shell, including in root environments.
@@ -31,6 +35,7 @@ class ShellService(context: Context) : IShellService.Stub() {
     private data class Target(
         val display: VirtualDisplay, val reader: ImageReader,
         @Volatile var frame: ByteArray? = null, @Volatile var lastCapture: Long = 0,
+        var sessionId: String? = null, var epoch: Long = -1, var agentAllowed: Boolean = false,
     )
     private val targets = linkedMapOf<String, Target>()
 
@@ -126,6 +131,48 @@ class ShellService(context: Context) : IShellService.Stub() {
             runCatching { ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(frame) } }
         }.start()
         return pipe[0]
+    }
+    override fun bindControl(handle: String, sessionId: String, epoch: Long, agentAllowed: Boolean) {
+        synchronized(targets) {
+            val target = requireNotNull(targets[handle])
+            require(target.sessionId == null || target.sessionId == sessionId)
+            require(epoch >= target.epoch)
+            check(epoch != target.epoch || target.agentAllowed || !agentAllowed) { "A revoked epoch cannot be reenabled" }
+            target.sessionId = sessionId; target.epoch = epoch; target.agentAllowed = agentAllowed
+        }
+    }
+    private fun calendarCommand(handle: String, sessionId: String, epoch: Long, arguments: List<String>) {
+        val process = synchronized(targets) {
+            val target = requireNotNull(targets[handle])
+            check(target.sessionId == sessionId && target.epoch == epoch && target.agentAllowed)
+            val displayId = target.display.display.displayId.also { check(it > 0) }
+            val command = listOf("/system/bin/am", "start", "--display", displayId.toString(),
+                "-p", "com.google.android.calendar", "-f", "0x10000000") + arguments
+            ProcessBuilder(command).redirectErrorStream(true).start()
+        }
+        // Fixed argument arrays; no shell interpretation, provider writes or model-supplied commands.
+        if (!process.waitFor(3, TimeUnit.SECONDS)) {
+            process.destroyForcibly(); error("Calendar launch acknowledgement unknown")
+        }
+        val result = process.inputStream.bufferedReader().use { it.readText().take(4096) }
+        check(process.exitValue() == 0 && !result.contains("Error:"))
+    }
+    override fun calendarView(handle: String, sessionId: String, epoch: Long, millis: Long) {
+        require(millis > 0)
+        calendarCommand(handle, sessionId, epoch, listOf("-a", "android.intent.action.VIEW",
+            "-d", "content://com.android.calendar/time/$millis"))
+    }
+    override fun calendarInsert(handle: String, sessionId: String, epoch: Long, draftJson: String) {
+        require(draftJson.length <= 40_000)
+        val draft = Json.decodeFromString<CalendarDraft>(draftJson)
+        require(draft.kind == TargetKind.EVENT && draft.title.isNotBlank())
+        val start = Instant.parse(draft.start).toEpochMilli()
+        val end = Instant.parse(draft.end).toEpochMilli()
+        require(start < end)
+        calendarCommand(handle, sessionId, epoch, listOf("-a", "android.intent.action.INSERT",
+            "-d", "content://com.android.calendar/events", "--es", "title", draft.title,
+            "--es", "description", draft.notes, "--es", "eventTimezone", draft.localZone,
+            "--el", "beginTime", start.toString(), "--el", "endTime", end.toString()))
     }
     override fun closeDisplay(handle: String) {
         val target = synchronized(targets) { targets.remove(handle) } ?: return

@@ -8,5 +8,8 @@ interface IShellService {
     String launch(String handle, String packageName) = 2;
     ParcelFileDescriptor capture(String handle) = 3;
     void closeDisplay(String handle) = 4;
+    void bindControl(String handle, String sessionId, long epoch, boolean agentAllowed) = 5;
+    void calendarView(String handle, String sessionId, long epoch, long millis) = 6;
+    void calendarInsert(String handle, String sessionId, long epoch, String draftJson) = 7;
     void destroy() = 16777114;
 }

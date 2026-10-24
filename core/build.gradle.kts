@@ -10,3 +10,4 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 tasks.test { useJUnitPlatform() }
+tasks.processTestResources { from(rootProject.file("evaluation/fixtures")) }
