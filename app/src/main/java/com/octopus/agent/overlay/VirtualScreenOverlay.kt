@@ -25,6 +25,9 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
         fun handBack(id: String)
         fun touch(id: String, transform: PreviewTransform, effect: PreviewEffect)
         fun cancelTouch()
+        fun editText(target: TouchTarget)
+        fun applyText(draft: HumanTextDraft, fieldId: String, value: String)
+        fun cancelText()
         fun openWorkbench()
     }
     private val manager = context.getSystemService(WindowManager::class.java)
@@ -35,6 +38,10 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
     private var tabs: LinearLayout? = null
     private var stateText: TextView? = null
     private var control: Button? = null
+    private var textButton: Button? = null
+    private var textTarget: TouchTarget? = null
+    private var textDraftId: String? = null
+    private var editor: LocalTextEditor? = null
     private var params: WindowManager.LayoutParams? = null
     private var enlarged = false
     private var version = 0L
@@ -108,6 +115,18 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
             }
             column.addView(button,LinearLayout.LayoutParams(-1,dp(44)))
         }
+        textButton=Button(context).apply {
+            this.id=R.id.overlay_text;text="输入文字";textSize=12f
+            setOnClickListener {
+                resetInput()
+                val current=item()?:return@setOnClickListener
+                val mapping=preview?.transform()?:return@setOnClickListener
+                val target=TouchTarget(current.state.token,current.state.displayId,current.state.packageName,
+                    mapping.version,current.width,current.height)
+                if(!isCurrent(target)) { showNotice("预览已过期，请等待新画面");return@setOnClickListener }
+                textTarget=target;render();callbacks.editText(target)
+            }
+        }.also { column.addView(it,LinearLayout.LayoutParams(-1,dp(42))) }
         val footer=LinearLayout(context)
         fun footerButton(id: Int, text: String, action: () -> Unit) {
             footer.addView(Button(context).apply { this.id=id;this.text=text;textSize=11f;setPadding(0,0,0,0);setOnClickListener { action() } },
@@ -158,6 +177,7 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
             text=if(owner==Owner.HUMAN) "交还 Agent（不自动恢复任务）" else "原地接管当前任务"
             isEnabled=owner==Owner.AGENT || owner==Owner.HUMAN
         }
+        textButton?.isEnabled=owner==Owner.HUMAN && textTarget==null
         preview?.refresh(current)
     }
     private fun resize() {
@@ -178,12 +198,30 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
         val window=root?:return;val layout=params?:return
         manager.updateViewLayout(window,layout)
     }
-    private fun resetInput() { version++;preview?.reset();callbacks.cancelTouch() }
+    private fun resetInput() {
+        version++;preview?.reset();callbacks.cancelTouch()
+        textTarget=null;textDraftId=null;editor?.close();editor=null;callbacks.cancelText()
+    }
+    fun cancelTextInput() { resetInput();if(root!=null) render() }
+    fun isTextCurrent(target: TouchTarget) = textTarget==target && isCurrent(target)
+    fun showTextEditor(draft: HumanTextDraft) {
+        if(!isTextCurrent(draft.target)) return
+        editor?.close();textDraftId=draft.id
+        editor=LocalTextEditor(context,draft,{ field,value ->
+            if(isTextCurrent(draft.target) && textDraftId==draft.id) callbacks.applyText(draft,field,value)
+            else finishTextEdit(draft.target,"输入已失效，请重新选择")
+        },{ finishTextEdit(draft.target,"已取消文字修改") })
+        if(editor?.show()!=true) finishTextEdit(draft.target,"无法打开本地编辑窗口")
+    }
+    fun finishTextEdit(target: TouchTarget, message: String) {
+        if(textTarget!=target) return
+        resetInput();showNotice(message)
+    }
     fun showNotice(message: String) { notice=message;if(root!=null) render() }
     fun hide() {
         resetInput()
         root?.let { runCatching { manager.removeView(it) } }
-        root=null;preview=null;tabs=null;stateText=null;control=null;params=null
+        root=null;preview=null;tabs=null;stateText=null;control=null;textButton=null;params=null
         if(registered) { context.unregisterComponentCallbacks(configurations);registered=false }
         // Viewing window closure leaves HUMAN ownership intact. Never return automatically.
     }
@@ -239,6 +277,7 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
             }
         }
         override fun onTouchEvent(event:MotionEvent):Boolean {
+            if(textTarget!=null) return true // Text capture/editing owns the local interaction channel.
             val now=SystemClock.uptimeMillis()
             val mapping=transform()
             val point=TouchPoint(event.x,event.y)

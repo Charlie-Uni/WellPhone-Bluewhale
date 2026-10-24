@@ -8,4 +8,10 @@
     <item name="overlay_resize" type="id" />
     <item name="overlay_settings" type="id" />
     <item name="overlay_hide" type="id" />
+    <item name="overlay_text" type="id" />
+    <item name="text_editor_root" type="id" />
+    <item name="text_editor_field" type="id" />
+    <item name="text_editor_value" type="id" />
+    <item name="text_editor_apply" type="id" />
+    <item name="text_editor_cancel" type="id" />
 </resources>

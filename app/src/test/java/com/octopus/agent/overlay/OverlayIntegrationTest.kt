@@ -9,11 +9,14 @@ import android.graphics.Paint
 import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import android.widget.EditText
+import android.widget.Spinner
 import com.octopus.agent.R
 import com.octopus.agent.workflow.StatusCapsule
 import com.octopus.core.*
@@ -62,10 +65,15 @@ class OverlayIntegrationTest {
             override fun handBack(id:String) { handBacks+=id }
             override fun touch(id:String,transform:PreviewTransform,effect:PreviewEffect) { touches+=Triple(id,transform,effect) }
             override fun cancelTouch() { cancellations++ }
+            override fun editText(target:TouchTarget) { textRequests+=target }
+            override fun applyText(draft:HumanTextDraft,fieldId:String,value:String) { textWrites+=Triple(draft,fieldId,value) }
+            override fun cancelText() { }
             override fun openWorkbench() { workbenchOpens++ }
         })
         capsule=StatusCapsule(context) { overlay.show() }
     }
+    private val textRequests=mutableListOf<TouchTarget>()
+    private val textWrites=mutableListOf<Triple<HumanTextDraft,String,String>>()
     @After fun cleanup() { capsule.close();overlay.hide();shadowOf(Looper.getMainLooper()).idle();frame.recycle() }
     private fun item(id:String="A",owner:Owner=Owner.AGENT,epoch:Long=0) = VirtualScreenOverlay.Item(id,"$id · 任务",
         SessionState(SessionToken(id,epoch),if(id=="A") 2 else 3,
@@ -272,5 +280,113 @@ class OverlayIntegrationTest {
         for(id in listOf(R.id.overlay_control,R.id.overlay_resize,R.id.overlay_settings,R.id.overlay_hide)) {
             val child=root.findViewById<View>(id);assertTrue(child.width>0 && child.height>0)
         }
+    }
+    private fun requestText():TouchTarget {
+        root().findViewById<Button>(R.id.overlay_text).performClick()
+        return textRequests.last()
+    }
+    private fun draft(target:TouchTarget,fields:List<HumanTextField> = listOf(HumanTextField("title","标题","旧标题",true))) =
+        HumanTextDraft("local-draft",target,fields)
+    private fun editor():ViewGroup = views().single {it.id==R.id.text_editor_root} as ViewGroup
+    private fun openEditor(fields:List<HumanTextField> = listOf(HumanTextField("title","标题","旧标题",true))):HumanTextDraft {
+        val draft=draft(requestText(),fields);overlay.showTextEditor(draft);advance(1)
+        val editor=editor();val params=editor.layoutParams as WindowManager.LayoutParams
+        editor.measure(View.MeasureSpec.makeMeasureSpec(params.width,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.AT_MOST))
+        editor.layout(0,0,params.width,editor.measuredHeight);advance(1)
+        return draft
+    }
+    @Test fun textEntryRequiresHumanOwnership() {
+        show(item());assertFalse(root().findViewById<Button>(R.id.overlay_text).isEnabled)
+        overlay.update(listOf(item(owner=Owner.DRAINING,epoch=1)))
+        assertFalse(root().findViewById<Button>(R.id.overlay_text).isEnabled);assertTrue(textRequests.isEmpty())
+        overlay.update(listOf(item(owner=Owner.HUMAN,epoch=1)));requestText()
+        assertEquals(1,textRequests.size)
+    }
+    @Test fun explicitEditorIsFocusableWhilePreviewKeepsItsFlags() {
+        show(item(owner=Owner.HUMAN,epoch=1));openEditor()
+        val params=editor().layoutParams as WindowManager.LayoutParams
+        assertEquals(0,params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        assertTrue(params.flags and WindowManager.LayoutParams.FLAG_SECURE!=0)
+        assertTrue((root().layoutParams as WindowManager.LayoutParams).flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE!=0)
+        assertEquals("旧标题",editor().findViewById<EditText>(R.id.text_editor_value).text.toString())
+        assertEquals(0,workbenchOpens)
+    }
+    @Test fun chineseMultilineEditIsExplicitAndDoubleConfirmationOnlySubmitsOnce() {
+        show(item(owner=Owner.HUMAN,epoch=1));val draft=openEditor()
+        val value="中文面试 🐙\n改为 18:30"
+        editor().findViewById<EditText>(R.id.text_editor_value).setText(value)
+        assertTrue(textWrites.isEmpty());val confirm=editor().findViewById<Button>(R.id.text_editor_apply)
+        confirm.performClick();confirm.performClick()
+        assertEquals(listOf(Triple(draft,"title",value)),textWrites)
+        assertTrue(handBacks.isEmpty())
+    }
+    @Test fun unfocusedMultipleFieldsRequireExplicitSelectionAndSupportClearing() {
+        show(item(owner=Owner.HUMAN,epoch=1))
+        openEditor(listOf(HumanTextField("title","标题","原标题",false),HumanTextField("notes","备注","原备注",false)))
+        assertFalse(editor().findViewById<Button>(R.id.text_editor_apply).isEnabled)
+        editor().findViewById<Spinner>(R.id.text_editor_field).setSelection(2);advance(1)
+        val input=editor().findViewById<EditText>(R.id.text_editor_value)
+        assertEquals("原备注",input.text.toString());input.setText("")
+        editor().findViewById<Button>(R.id.text_editor_apply).performClick()
+        assertEquals("notes",textWrites.single().second);assertEquals("",textWrites.single().third)
+    }
+    @Test fun textRequestCancelsPendingTapAndBlocksPreviewUntilClosed() {
+        show(item(owner=Owner.HUMAN,epoch=1));tapPreview();openEditor();advance(350)
+        tapPreview();advance(350);assertTrue(touches.isEmpty())
+        editor().findViewById<Button>(R.id.text_editor_cancel).performClick()
+        assertEquals(1,views().size);assertTrue(textWrites.isEmpty())
+        layoutWindow() // Closing notice changes preview size; settle its invalidating traversal first.
+        tapPreview();advance(350);assertEquals(1,touches.size)
+    }
+    @Test fun hiddenPreviewRejectsLateReadAndOldEditorConfirm() {
+        show(item(owner=Owner.HUMAN,epoch=1));val draft=openEditor()
+        val confirm=editor().findViewById<Button>(R.id.text_editor_apply)
+        overlay.hide();confirm.performClick();overlay.showTextEditor(draft)
+        assertTrue(views().isEmpty());assertTrue(textWrites.isEmpty());assertTrue(handBacks.isEmpty())
+    }
+    @Test fun switchingSessionsInvalidatesEditorWithoutApplyingChanges() {
+        show(item(owner=Owner.HUMAN,epoch=1),item("B",Owner.HUMAN,1));val draft=openEditor()
+        overlay.show("B");layoutWindow();overlay.showTextEditor(draft)
+        assertEquals(1,views().size);assertFalse(overlay.isTextCurrent(draft.target));assertTrue(textWrites.isEmpty())
+    }
+    @Test fun resizeAndEpochChangeBothCloseEditor() {
+        show(item(owner=Owner.HUMAN,epoch=1));val first=openEditor()
+        root().findViewById<Button>(R.id.overlay_resize).performClick();layoutWindow()
+        assertEquals(1,views().size);assertFalse(overlay.isTextCurrent(first.target))
+        val second=openEditor();overlay.update(listOf(item(owner=Owner.AGENT,epoch=2)))
+        assertEquals(1,views().size);assertFalse(overlay.isTextCurrent(second.target));assertTrue(textWrites.isEmpty())
+    }
+    @Test fun handbackClosesEditorAndStaleConfirmCannotApply() {
+        show(item(owner=Owner.HUMAN,epoch=1));openEditor()
+        val confirm=editor().findViewById<Button>(R.id.text_editor_apply)
+        root().findViewById<Button>(R.id.overlay_control).performClick();confirm.performClick()
+        assertEquals(listOf("A"),handBacks);assertTrue(textWrites.isEmpty());assertEquals(1,views().size)
+    }
+    @Test fun editorBackDiscardsDraftAndDoesNotHandBackOrWrite() {
+        show(item(owner=Owner.HUMAN,epoch=1));val draft=openEditor()
+        val input=editor().findViewById<EditText>(R.id.text_editor_value)
+        input.setText("尚未写回")
+        input.onKeyPreIme(KeyEvent.KEYCODE_BACK,KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_BACK))
+        assertEquals(1,views().size);assertFalse(overlay.isTextCurrent(draft.target))
+        assertTrue(textWrites.isEmpty());assertTrue(handBacks.isEmpty());assertEquals("",input.text.toString())
+    }
+    @Test fun editorCompletionClosesLocalWindowAndRetainsHumanControl() {
+        show(item(owner=Owner.HUMAN,epoch=1));val draft=openEditor()
+        overlay.finishTextEdit(draft.target,"文字已核实")
+        assertEquals(1,views().size);assertTrue(root().findViewById<TextView>(R.id.overlay_status).text.contains("文字已核实"))
+        assertEquals("交还 Agent（不自动恢复任务）",root().findViewById<Button>(R.id.overlay_control).text.toString())
+        assertTrue(handBacks.isEmpty())
+    }
+    @Test fun nativeGraphicsRendersLocalTextEditor() {
+        show(item(owner=Owner.HUMAN,epoch=1));openEditor()
+        val editor=editor();val bitmap=Bitmap.createBitmap(editor.width,editor.height,Bitmap.Config.ARGB_8888)
+        try {
+            editor.draw(Canvas(bitmap))
+            val directory=File(requireNotNull(System.getProperty("octopus.overlay.artifacts"))).apply {mkdirs()}
+            File(directory,"text-editor.png").outputStream().use {assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG,100,it))}
+            assertTrue(editor.findViewById<View>(R.id.text_editor_value).height>0)
+            assertTrue(editor.findViewById<View>(R.id.text_editor_apply).bottom<=editor.height)
+        } finally {bitmap.recycle()}
     }
 }

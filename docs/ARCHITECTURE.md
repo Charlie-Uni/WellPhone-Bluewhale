@@ -13,6 +13,7 @@
 | GmailGuiPort / CalendarGuiPort | 标签搜索、正文读取、日历/Tasks 填写、重开证明 | Android；控件版本适配与可见证据待真机确认 |
 | ModelClient | 手机 HTTPS、严格 JSON 解码、单步响应 | 不预设厂商；未配置时拒绝执行 |
 | StatusCapsule / UserReviews | 状态胶囊、本地时间/冲突确认 | 已接入胶囊与虚拟屏小窗，人工触摸经过独立整段 Broker 准入 |
+| HumanTextController / HumanTextAccess | 本地草稿、字段身份、一次确认与读回 | 与触摸共用 Broker；临时本地编辑焦点，虚拟屏 IME 隐藏 |
 | LoadGovernor | 主屏输入/帧负载的低频元数据→取帧/动作节奏 | core 策略；真机信号待接入 |
 | Journal | 单调时钟、sessionId/E/actionId、状态与耗时 | 不记录邮件正文、密钥、完整链接 |
 
@@ -76,6 +77,7 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 | CalendarPort | inspect / find / prepare / save / reopenAndVerify；准备票据绑定 sessionId/E 与 draftDigest |
 | CanonicalStore / WriteStore | 来源快照、CAS 写入状态；中断后重跑查询恢复 |
 | ObservationPort / ActionPort | SessionState → Observation；SessionToken + observation + Action → 是否受理 |
+| HumanTextPort | capture → 本地字段草稿；replace → VERIFIED / UNKNOWN；clear 撤销；不自动提交 |
 | Shell AIDL | create/capture/close、bindControl、定向日历 Intent、bindHuman/injectTouch；无任意 shell 接口 |
 
 默认流程串行读取 A、消费结构化事项到 B。会话与端口已为第二执行 Agent 留出边界；并行队列和独立重调度尚未实现。
@@ -115,6 +117,14 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 
 ## 本地 Android 集成测试
 
-Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler 和 Native Graphics，19 项测试覆盖胶囊入口、接管前后路由、双击、切任务、隐藏/旋转/权限变化与渲染。另在 SDK 34/35 下执行输入适配器反射与事件构造，共 8 项。
+Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler 和 Native Graphics，31 项覆盖胶囊入口、接管、文字面板、双击、切任务、隐藏/旋转/权限变化与渲染。SDK 34/35 下另有 8 项触摸适配器反射/参数测试、30 项文字适配器节点绑定/回执/取消测试。
 
 注入接收端与 displayId 元数据有显式测试 Shadow，窗口控制权由测试状态驱动；真实服务权限、InputDispatcher、主屏焦点及 OEM 行为仍在设备 AC01/AC08/AC11/AC12 验收。细节见 [OVERLAY.md](OVERLAY.md)。
+
+## 原地文字修改
+
+小窗保留非焦点预览，用户主动点“输入文字”时才创建临时可焦点本地编辑窗口。选择当前虚拟屏的可编辑字段，通过 ACTION_SET_TEXT 替换整段文字；系统输入法不切换，虚拟屏 IME 仍为 HIDE。编辑阶段暂停预览触摸，避免字段随操作变化。
+
+HumanTextController 绑定 TouchTarget（sessionId/E/display/package/预览版本）并持有一次草稿。HumanTextAccess 只从目标显示最上层应用窗口枚举字段，排除密码、不可见、禁用、无 SET_TEXT 动作和超长字段。写回前核对窗口 ID、节点身份/路径、resourceId、类型、边界、原值和 120 秒期限，最后派发与控制权检查在 Main 连续执行。读回最多等待 250ms，只证明字段内容，不证明 App 保存或发出消息。
+
+切换任务、隐藏、缩放、配置变化和交还均撤销草稿；晚到读取不能重开编辑器。文字和整段触摸共用 humanAction，交还等待在途文字结算。UNKNOWN 消费草稿且不重放。交还增加 E、撤销旧观察；原单执行任务仍停止，用户重新开始时走 Ledger 查询恢复，查到但不符合规范事项的内容进入未知/人工检查，不自动覆盖。规范事项和来源标记不会随手改自动同步；首次保存前人工删改来源标记的查重恢复仍需专项验证。

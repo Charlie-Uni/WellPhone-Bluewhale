@@ -1,6 +1,6 @@
 {
-  "recordedAtUTC": "2026-10-24T23:23:05.883641+00:00",
-  "scope": "Local core tests + Robolectric production Android View and adapter contract tests; shadowed system services, no emulator/device/online model evaluation",
+  "recordedAtUTC": "2026-10-24T23:47:07.354647+00:00",
+  "scope": "Local core tests + Robolectric production views, text and touch adapter tests; shadowed system services, no emulator/device/online model evaluation",
   "environment": {
     "os": "Darwin",
     "architecture": "arm64",
@@ -8,7 +8,7 @@
     "gradle": "8.11.1"
   },
   "coreTests": {
-    "tests": 85,
+    "tests": 95,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -18,6 +18,7 @@
     "com.octopus.core.CoordinatorTest": 3,
     "com.octopus.core.GuiEvidenceTest": 16,
     "com.octopus.core.GuiNavigatorTest": 4,
+    "com.octopus.core.HumanTextTest": 10,
     "com.octopus.core.PreviewTouchTest": 18,
     "com.octopus.core.RulesTest": 23,
     "com.octopus.core.WorkflowTest": 16
@@ -28,8 +29,8 @@
     "minSdk": 34,
     "targetSdk": 35,
     "artifact": "app/build/outputs/apk/debug/app-debug.apk",
-    "bytes": 25050239,
-    "sha256": "f955f6fbf13cada4812af820cce541037c5ec1a294c916670bb28483ee74afb0"
+    "bytes": 25477930,
+    "sha256": "fe88b6a228b037caecfc80a5a1e60d97eb5f4882cdff40670d5308012f9351b0"
   },
   "lint": {
     "status": "PASSED_WITH_WARNINGS",
@@ -74,7 +75,7 @@
   "emailCalendarWorkflow": "IMPLEMENTED_AND_WIRED_NOT_DEVICE_VALIDATED",
   "githubCI": {
     "previousRunConclusion": "PASSED",
-    "previousRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40138755849",
+    "previousRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40142592246",
     "latestRuns": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions",
     "note": "Local evidence record; consult commit-specific CI for the current remote result"
   },
@@ -100,32 +101,39 @@
     "androidWindowManager": "ROBOLECTRIC_SHADOW_WINDOW_SERVICE_PASSED",
     "nativeTouchInjection": "NOT_RUN",
     "focusAndIme": "NOT_RUN",
-    "manualTextInputBridge": "NOT_IMPLEMENTED",
+    "manualTextInputBridge": "IMPLEMENTED_LOCAL_CORE_AND_ROBOLECTRIC_VALIDATED_DEVICE_PENDING",
     "multiTouch": "CANCEL_ONLY",
     "adapterReflectionAndArguments": "PASSED_SDK34_35_WITH_SHADOWED_DELIVERY_AND_DISPLAY_METADATA",
     "renders": [
       {
         "artifact": "app/build/reports/overlay/compact.png",
         "source": "SYNTHETIC_FRAME_ROBOLECTRIC_NATIVE_GRAPHICS",
-        "bytes": 48445,
-        "sha256": "61e3b56d08a2e1874887a43e9f65dc8f8c9cde6a35b85a57418138eb0a2b04b8"
+        "bytes": 51439,
+        "sha256": "67b72d478da3a0bcb5f27a05f75c29b3a522fa5af637c66efd04b1817547ec46"
       },
       {
         "artifact": "app/build/reports/overlay/expanded.png",
         "source": "SYNTHETIC_FRAME_ROBOLECTRIC_NATIVE_GRAPHICS",
-        "bytes": 61948,
-        "sha256": "583635ebed6e1303cfdb533ee7cedd0cfa5569bf142fb672f2a5354a71628402"
+        "bytes": 63831,
+        "sha256": "cd41ac27f3d4b7d7710f8799e299d0cc0683c9df0fb862829ed61a4e333c8bce"
+      },
+      {
+        "artifact": "app/build/reports/overlay/text-editor.png",
+        "source": "SYNTHETIC_FRAME_ROBOLECTRIC_NATIVE_GRAPHICS",
+        "bytes": 48413,
+        "sha256": "6e23c6c902a1c94795c6f381edd39821cf5a0690e11d4e58f3657757cb769b44"
       }
     ]
   },
   "androidUiTests": {
-    "tests": 27,
+    "tests": 69,
     "failures": 0,
     "errors": 0,
     "skipped": 0,
     "suites": {
+      "com.octopus.agent.accessibility.HumanTextAccessTest": 30,
       "com.octopus.agent.bridge.DisplayTouchInjectorTest": 8,
-      "com.octopus.agent.overlay.OverlayIntegrationTest": 19
+      "com.octopus.agent.overlay.OverlayIntegrationTest": 31
     },
     "robolectric": "4.16.1",
     "windowSdk": 35,
@@ -136,6 +144,32 @@
     "graphics": "NATIVE_SKIA_WITH_SYNTHETIC_PREVIEW",
     "systemServices": "SHADOWED",
     "motionEventDisplayMetadata": "EXPLICIT_TEST_SHADOW",
-    "scope": "Production views/handlers/reflection/argument construction; test-driven ownership and recorded callbacks, no real ViewModel/Shizuku/App integration"
+    "scope": "Production views/handlers/reflection/text adapter; shadowed windows, accessibility nodes/action delivery and input services; real SessionBroker in text adapter tests; no real ViewModel/Shizuku/App integration",
+    "textAdapterSdks": [
+      34,
+      35
+    ]
+  },
+  "humanTextEvaluation": {
+    "coreTests": 10,
+    "androidAdapterTests": 30,
+    "androidWindowTestsInOverlaySuite": 12,
+    "mode": "SIMULATED_ACCESSIBILITY_NODES_ACTION_RECEIPTS_AND_WINDOW_SERVICES",
+    "verifiedLocally": [
+      "Unicode multiline and empty replacement",
+      "explicit field selection",
+      "single confirmation and UNKNOWN no replay",
+      "default display and password exclusion",
+      "node identity original value bounds window epoch and expiry fences",
+      "late capture invalidation",
+      "hide switch resize handback and Back discard",
+      "shared touch/text admission and independent other session",
+      "cancelled caller retains lease through submitted action settlement"
+    ],
+    "virtualDisplayIme": "HIDE_UNCHANGED",
+    "localEditorFocus": "EXPLICIT_USER_REQUEST_ONLY",
+    "deviceKeyboardCompositionAndFocusRestore": "NOT_RUN",
+    "realAppPersistence": "NOT_RUN",
+    "autoSaveSendOrWorkflowResume": "NOT_IMPLEMENTED_BY_DESIGN"
   }
 }

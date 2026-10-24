@@ -54,6 +54,17 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         keySaved = secrets.read() != null))
     val state = mutableState.asStateFlow()
     private var forwardingTarget: TouchTarget? = null
+    private var textWork: Job? = null
+    private val texts by lazy {
+        HumanTextController(app.broker, object : HumanTextPort {
+            override suspend fun capture(session: SessionState, draftId: String) =
+                requireNotNull(OctopusAccessibilityService.instance).humanText.capture(session,draftId)
+            override suspend fun replace(session: SessionState, draftId: String, fieldId: String, value: String,
+                stillCurrent: () -> Boolean) = requireNotNull(OctopusAccessibilityService.instance)
+                .humanText.replace(session,draftId,fieldId,value,stillCurrent)
+            override fun clear(draftId: String) { OctopusAccessibilityService.instance?.humanText?.clear(draftId) }
+        },preview::isTextCurrent)
+    }
     private val humanWindows = mutableMapOf<String, Int>()
     private val touches: HumanTouchController = HumanTouchController(app.broker, viewModelScope, HumanTouchSink(::injectHumanTouch),
         SystemClock::uptimeMillis) { reason ->
@@ -65,6 +76,9 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         override fun handBack(id: String) { probe(id)?.let(::returnControl) }
         override fun touch(id: String, transform: PreviewTransform, effect: PreviewEffect) { previewTouch(id, transform, effect) }
         override fun cancelTouch() { forwardingTarget = null; touches.cancel() }
+        override fun editText(target: TouchTarget) { openTextEditor(target) }
+        override fun applyText(draft: HumanTextDraft, fieldId: String, value: String) { writeHumanText(draft,fieldId,value) }
+        override fun cancelText() { texts.invalidate() }
         override fun openWorkbench() {
             application.startActivity(Intent(application, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
@@ -163,8 +177,10 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
             else "正在等待已提交输入结束；暂不允许人工输入")
     }
     fun returnControl(probe: ProbeSession) = work {
+        preview.cancelTextInput()
         forwardingTarget = null
         touches.cancelAndJoin()
+        textWork?.join()
         val returned = app.broker.returnControl(app.broker.state(probe.state.token.sessionId).token)
         withContext(Dispatchers.IO) {
             connector.service.value?.bindControl(probe.handle, returned.token.sessionId, returned.token.epoch, true)
@@ -195,6 +211,34 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
     fun openPreview(id: String? = null) {
         publishPreview()
         if (!preview.show(id)) mutableState.value = mutableState.value.copy(message = "请先授予悬浮权限，再点击胶囊或打开小窗")
+    }
+    private fun openTextEditor(target: TouchTarget) {
+        // Reset already revoked the previous draft. Do not overlap a settling text action.
+        val previous = textWork
+        textWork = viewModelScope.launch {
+            try {
+                previous?.join()
+                touches.cancelAndJoin()
+                if(!preview.isTextCurrent(target)) return@launch
+                preview.showTextEditor(texts.open(target))
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { preview.finishTextEdit(target,"未读取到可编辑字段，请先打开目标编辑页面并重试") }
+        }
+    }
+    private fun writeHumanText(draft: HumanTextDraft, fieldId: String, value: String) {
+        val previous = textWork
+        textWork = viewModelScope.launch {
+            try {
+                previous?.join()
+                val result=texts.apply(draft,fieldId,value)
+                app.store.record(AgentEvent("HUMAN_TEXT_${result.name}",draft.target.token.sessionId,
+                    draft.target.token.epoch,displayId=draft.target.displayId,packageName=draft.target.packageName))
+                preview.finishTextEdit(draft.target,if(result==TextWriteResult.VERIFIED)
+                    "文字已写回并读回核对；请自行保存/发送，再交还 Agent"
+                    else "写回结果未知，未自动重试；请检查虚拟屏中的内容")
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { preview.finishTextEdit(draft.target,"无法确认写回结果，请检查当前页面后重新选择") }
+        }
     }
     private fun previewTouch(id: String, transform: PreviewTransform, effect: PreviewEffect) {
         val probe = probe(id) ?: return
