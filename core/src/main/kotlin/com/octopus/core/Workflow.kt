@@ -103,7 +103,10 @@ interface CanonicalStore {
     }
 }
 
-data class CalendarInspection(val busy: List<BusyInterval>, val complete: Boolean)
+data class CalendarInspection(val busy: List<BusyInterval>, val complete: Boolean, val detail: String = "") {
+    fun fingerprint(): String = digest("$complete:$detail:" + busy.distinct().sortedWith(compareBy({ it.start }, { it.end }))
+        .joinToString { "${it.start}/${it.end}" })
+}
 data class VerifiedRecord(val locator: String, val draftDigest: String, val reopened: Boolean)
 sealed interface FindRecord {
     data class Found(val proof: VerifiedRecord) : FindRecord
@@ -113,6 +116,8 @@ sealed interface FindRecord {
 data class PreparedWrite(val id: String, val draftDigest: String, val token: SessionToken)
 interface CalendarPort {
     suspend fun recover(point: CalendarCheckpoint, status: WriteStatus): CalendarRecovery = CalendarRecovery.Blocked("RESUME_UNSUPPORTED")
+    /** Must preserve the current form. Missing read access yields incomplete evidence. */
+    suspend fun inspectResume(draft: CalendarDraft): CalendarInspection = CalendarInspection(emptyList(), false, "RESUME_READ_UNAVAILABLE")
     suspend fun inspect(config: WorkflowConfig, item: RecruitmentItem): CalendarInspection
     suspend fun find(draft: CalendarDraft): FindRecord
     suspend fun prepare(draft: CalendarDraft): PreparedWrite
@@ -120,7 +125,7 @@ interface CalendarPort {
     suspend fun reopenAndVerify(draft: CalendarDraft): VerifiedRecord?
 }
 interface ReviewPort {
-    suspend fun confirmResume(draft: CalendarDraft): Boolean = false
+    suspend fun confirmResume(draft: CalendarDraft, inspection: CalendarInspection? = null): Boolean = false
     suspend fun reviewItem(item: RecruitmentItem, reasons: List<String>): RecruitmentItem?
     suspend fun resolveConflict(item: RecruitmentItem, inspection: CalendarInspection): ConflictChoice?
 }
@@ -275,6 +280,7 @@ class MailCalendarWorkflow(
             is CalendarRecovery.Blocked -> throw GuiNeedsUser(result.code)
             is CalendarRecovery.Verified -> {
                 check(ResumeEvidence.bound(point.draft, result.draft) && valid(result.proof, result.draft))
+                recheckResume(result.draft, alwaysConfirm = false)
                 storeRevision(point, result.draft)
                 ledger.reconciled(point.draft.key, result.proof.locator)
                 recovered(result.draft, "已重开核实人工修改；继续剩余事项")
@@ -283,7 +289,7 @@ class MailCalendarWorkflow(
                 check(point.phase in setOf(CalendarPhase.PREPARE, CalendarPhase.READY_TO_SAVE))
                 check(ledger.status(point.draft.key) == WriteStatus.HUMAN_HELD)
                 check(ResumeEvidence.bound(point.draft, result.draft) && result.prepared.draftDigest == result.draft.contentDigest())
-                if (!review.confirmResume(result.draft)) throw GuiNeedsUser("RESUME_CONFIRMATION_REQUIRED")
+                recheckResume(result.draft, alwaysConfirm = true)
                 storeRevision(point, result.draft)
                 checkpoint.calendar = point.copy(draft = result.draft, phase = CalendarPhase.SAVE_PENDING)
                 ledger.authorizeResume(point.draft.key)
@@ -305,9 +311,18 @@ class MailCalendarWorkflow(
             }
         }
     }
+    private suspend fun recheckResume(draft: CalendarDraft, alwaysConfirm: Boolean) {
+        val checked = if (draft.kind == TargetKind.EVENT) calendar.inspectResume(draft) else null
+        val interval = if (draft.kind == TargetKind.EVENT) BusyInterval(Instant.parse(draft.start), Instant.parse(draft.end)) else null
+        val needsChoice = checked != null && (!checked.complete || checked.busy.any { it.overlaps(requireNotNull(interval)) })
+        if ((alwaysConfirm || needsChoice) && !review.confirmResume(draft, checked)) throw GuiNeedsUser("RESUME_CONFIRMATION_REQUIRED")
+        if (checked != null && calendar.inspectResume(draft).fingerprint() != checked.fingerprint()) {
+            throw GuiNeedsUser("RESUME_CONFLICTS_CHANGED")
+        }
+    }
     private suspend fun storeRevision(point: CalendarCheckpoint, draft: CalendarDraft) {
         val canonical = requireNotNull(canonicalStore.load(point.source)).single { it.id == draft.key }
-        canonicalStore.update(point.source, canonical.copy(userDraft = draft))
+        canonicalStore.update(point.source, canonical.copy(userDraft = draft, choice = null, choiceDigest = null))
     }
     private fun recovered(draft: CalendarDraft, boundary: String) {
         val outcome = ItemOutcome(draft.key, ItemResult.VERIFIED, boundary)

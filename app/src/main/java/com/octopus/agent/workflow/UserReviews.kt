@@ -46,12 +46,19 @@ class UserReviews(private val broker: SessionBroker, private val present: (UserQ
 class WorkflowReviews(
     private val questions: UserReviews, private val calendarToken: SessionToken, private val zone: ZoneId,
 ) : ReviewPort {
-    override suspend fun confirmResume(draft: CalendarDraft): Boolean {
+    override suspend fun confirmResume(draft: CalendarDraft, inspection: CalendarInspection?): Boolean {
         val start = draft.start ?: draft.remindAt
+        val conflict = inspection?.let { checked ->
+            val busy = checked.busy.joinToString("\n") { "${TimeRules.local(it.start.toString(), zone)} – ${TimeRules.local(it.end.toString(), zone)}" }
+            (if (!checked.complete) "冲突检查范围不完整，需你人工核对。" else if (checked.busy.isEmpty()) "检查范围内未发现冲突。" else "新时间与以下日程冲突：") +
+                "\n$busy\n${checked.detail}"
+        }.orEmpty()
         val answer = questions.ask(UserQuestion(token = calendarToken, title = "沿用当前修改继续",
-            detail = "${draft.title}\n${TimeRules.local(start, zone)}\n${draft.notes}\n\n" +
-                "当前页面已逐字段核对，不会再填回旧内容。暂停期间其他日程可能变化；确认后保存当前表单，并重开核实。",
-            options = listOf("沿用当前内容并保存", "先保留页面")))
+            detail = "${draft.title}\n${TimeRules.local(start, zone)}" +
+                (draft.end?.let { " – ${TimeRules.local(it, zone)}" }.orEmpty()) +
+                "\n提醒：${TimeRules.local(draft.remindAt, zone)}\n${draft.notes}\n\n$conflict\n" +
+                "保留你修改后的时间和当前表单。继续表示接受上述检查边界/冲突；已有日程不会修改。已保存的事项只核实，未保存的事项保存后重开核实。要改约或改成提醒，请先保留页面并接管调整。",
+            options = listOf("保留新时间并继续", "先保留页面")))
         return answer.option == 0
     }
     override suspend fun reviewItem(item: RecruitmentItem, reasons: List<String>): RecruitmentItem? {

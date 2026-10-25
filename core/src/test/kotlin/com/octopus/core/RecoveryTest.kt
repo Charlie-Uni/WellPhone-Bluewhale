@@ -23,7 +23,7 @@ class RecoveryTest {
             items[sourceFingerprint]=items.getValue(sourceFingerprint).map {if(it.id==item.id)item else it}
         }
     }
-    private class Fixture(private val pauseAt:Int=0) {
+    private class Fixture(private val pauseAt:Int=0, event:Boolean=false) {
         val config=WorkflowConfig("整理招聘邮件","me@example.test","Recruitment","me@example.test","Events",scopeAuthorized=true)
         val store=Store();val ledger=WriteLedger(store);val checkpoint=WorkflowCheckpoint()
         val docs=(1..2).map { index ->
@@ -31,7 +31,8 @@ class RecoveryTest {
             MailDocument(SourceEmail(config.mailAccount,"hr@example.test","招聘材料 $index","2026-10-24T01:00:00Z",digest(body)),body)
         }
         init { docs.forEachIndexed { i,doc -> store.items[doc.source.fingerprint()]=listOf(CanonicalItem("item$i",
-            RecruitmentItem(ItemType.MATERIALS_DEADLINE,doc.source.subject,doc.source,doc.body,"北京时间","Asia/Shanghai",
+            RecruitmentItem(if(event)ItemType.INTERVIEW else ItemType.MATERIALS_DEADLINE,doc.source.subject,doc.source,doc.body,"北京时间","Asia/Shanghai",
+                start=if(event)"2026-10-28T10:00:00Z"else null,end=if(event)"2026-10-28T11:00:00Z"else null,
                 deadline="2026-10-28T10:00:00Z",remindAt="2026-10-28T09:00:00Z",confidence=Confidence.HIGH,
                 evidence=listOf(doc.body)),humanConfirmed=true)) } }
         var reads=0;var prepares=0;var saves=0;var confirms=0
@@ -41,7 +42,14 @@ class RecoveryTest {
         var editor:CalendarDraft?=null
         val records=mutableMapOf<String,CalendarDraft>()
         var token=SessionToken("calendar",0)
+        var resumeChecks=0
+        var inspection=CalendarInspection(emptyList(),true)
+        var afterConfirm:(()->Unit)?=null
+        var reviewed:CalendarInspection?=null
         val calendar=object:CalendarPort {
+            override suspend fun inspectResume(draft:CalendarDraft):CalendarInspection {
+                resumeChecks++; assertEquals(editor ?: records.getValue(draft.key),draft);return inspection
+            }
             override suspend fun inspect(config:WorkflowConfig,item:RecruitmentItem)=CalendarInspection(emptyList(),true)
             override suspend fun find(draft:CalendarDraft):FindRecord = records[draft.key]?.let {
                 if(it==draft) CalendarRecovery.Verified(it,proof(it)).let { found -> FindRecord.Found(found.proof) } else FindRecord.Unknown
@@ -71,7 +79,7 @@ class RecoveryTest {
         val review=object:ReviewPort {
             override suspend fun reviewItem(item:RecruitmentItem,reasons:List<String>)=item
             override suspend fun resolveConflict(item:RecruitmentItem,inspection:CalendarInspection)=ConflictChoice.KEEP_BOTH
-            override suspend fun confirmResume(draft:CalendarDraft):Boolean { confirms++;return approve }
+            override suspend fun confirmResume(draft:CalendarDraft,inspection:CalendarInspection?):Boolean { confirms++;reviewed=inspection;afterConfirm?.invoke();return approve }
         }
         fun workflow(memory:WorkflowCheckpoint=checkpoint)=MailCalendarWorkflow(object:MailPort {
             override suspend fun read(config:WorkflowConfig):List<MailDocument>{reads++;return docs}
@@ -141,8 +149,8 @@ class RecoveryTest {
         assertFailsWith<IllegalStateException>{f.workflow().run(f.config)}
         assertEquals(0,f.saves);assertEquals(0,f.confirms)
     }
-    @Test fun changedTimeOrRemovedMarkerCannotBeAdoptedByTheAdapter()=runTest {
-        for(change in listOf<(CalendarDraft)->CalendarDraft>({it.copy(remindAt="2026-10-28T08:00:00Z")},{it.copy(notes="标记被删除")})) {
+    @Test fun invalidTimeOrRemovedMarkerCannotBeAdoptedByTheAdapter()=runTest {
+        for(change in listOf<(CalendarDraft)->CalendarDraft>({it.copy(remindAt="2026-10-28T11:00:00Z")},{it.copy(notes="标记被删除")})) {
             val f=Fixture();f.pause(this);f.editor=change(f.editor!!)
             assertFailsWith<IllegalStateException>{f.workflow().run(f.config)}
             assertEquals(0,f.saves);assertNull(f.store.items.values.flatten().first {it.id=="item0"}.userDraft)
@@ -191,7 +199,7 @@ class RecoveryTest {
         assertFailsWith<GuiNeedsUser>{ResumeEvidence.checkScenes(scene("mail"),calendar,null,mailNeeded=true)}
         ResumeEvidence.checkScenes(scene("mail"),calendar,null,mailNeeded=false)
     }
-    @Test fun unclassifiedTimeSwapCannotPassJustBecauseOldTimeStringsStillExist() {
+    @Test fun fieldStructureAllowsTimeValuesButRejectsOtherSceneChanges() {
         val token=SessionToken("calendar",1)
         val before=Observation(token,"before",3,7,"com.google.android.calendar",0,listOf(
             UiElement(1,"EditText","原标题",editable=true,resourceId="calendar:id/title"),
@@ -200,7 +208,46 @@ class RecoveryTest {
         val renamed=before.copy(token=token.copy(epoch=2),observationId="after",elements=before.elements.map {if(it.id==1)it.copy(text="新标题")else it})
         assertTrue(ResumeEvidence.sameOtherFields(before,renamed))
         val swapped=renamed.copy(elements=renamed.elements.map {if(it.id==2)it.copy(text="11:00")else if(it.id==3)it.copy(text="10:00")else it})
-        assertFalse(ResumeEvidence.sameOtherFields(before,swapped))
+        assertTrue(ResumeEvidence.sameOtherFields(before,swapped))
         assertFalse(ResumeEvidence.sameOtherFields(before,renamed.copy(windowId=99)))
     }
+    @Test fun changedEventTimeIsRecheckedAndPersistedBeforeRemainingItemsContinue()=runTest {
+        val f=Fixture(event=true);f.pause(this)
+        val original=f.editor!!
+        val changed=original.copy(start="2026-10-29T10:00:00Z",end="2026-10-29T11:30:00Z",remindAt="2026-10-29T09:00:00Z")
+        f.editor=changed
+        f.inspection=CalendarInspection(listOf(BusyInterval(java.time.Instant.parse(changed.start),java.time.Instant.parse(changed.end))),true,"local")
+        assertEquals(2,f.workflow().run(f.config).verified)
+        assertEquals(changed,f.records["item0"]);assertEquals(2,f.resumeChecks);assertEquals(f.inspection,f.reviewed)
+        val canonical=f.store.items.values.flatten().first {it.id=="item0"}
+        assertEquals(changed,canonical.userDraft);assertNull(canonical.choiceDigest);assertNull(canonical.choice)
+        assertEquals(2,f.workflow(WorkflowCheckpoint()).run(f.config).verified);assertEquals(2,f.saves)
+    }
+    @Test fun conflictChangingDuringConfirmationPreservesUnsavedPageAndHold()=runTest {
+        val f=Fixture(event=true);f.pause(this)
+        f.afterConfirm={f.inspection=CalendarInspection(emptyList(),false,"permission revoked")}
+        assertEquals("RESUME_CONFLICTS_CHANGED",assertFailsWith<GuiNeedsUser>{f.workflow().run(f.config)}.reasonCode)
+        assertEquals(0,f.saves);assertEquals(1,f.prepares);assertNotNull(f.editor)
+        assertEquals(WriteStatus.HUMAN_HELD,f.ledger.status("item0"));assertNull(f.store.items.values.flatten().first {it.id=="item0"}.userDraft)
+    }
+    @Test fun unknownConflictScopeRequiresFreshChoiceAndCanBeDeclined()=runTest {
+        val f=Fixture(event=true);f.pause(this);f.approve=false
+        f.inspection=CalendarInspection(emptyList(),false,"no read permission")
+        assertFailsWith<GuiNeedsUser>{f.workflow().run(f.config)}
+        assertEquals(f.inspection,f.reviewed);assertEquals(0,f.saves);assertTrue(f.checkpoint.needsResume)
+    }
+    @Test fun manuallySavedNewTimeStillChecksConflictsWithoutAnotherSave()=runTest {
+        val f=Fixture(event=true);f.pause(this)
+        val changed=f.editor!!.copy(start="2026-10-29T10:00:00Z",end="2026-10-29T11:00:00Z",remindAt="2026-10-29T09:00:00Z")
+        f.records[changed.key]=changed;f.editor=null;f.inspection=CalendarInspection(emptyList(),false,"unknown")
+        assertEquals(2,f.workflow().run(f.config).verified)
+        assertEquals(2,f.resumeChecks);assertEquals(1,f.confirms);assertEquals(1,f.saves);assertEquals(changed,f.records[changed.key])
+    }
+    @Test fun taskReminderMayChangeBeforeOriginalDeadlineAndSurvivesRerun()=runTest {
+        val f=Fixture();f.pause(this);f.editor=f.editor!!.copy(remindAt="2026-10-28T08:00:00Z")
+        val changed=f.editor!!
+        assertEquals(2,f.workflow().run(f.config).verified);assertEquals(changed,f.records["item0"])
+        assertEquals(0,f.resumeChecks);assertEquals(2,f.workflow(WorkflowCheckpoint()).run(f.config).verified);assertEquals(2,f.saves)
+    }
+
 }

@@ -18,6 +18,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import java.time.ZoneId
+import java.time.Instant
 
 /** Real navigator/GUI port/broker/store; shell, screen trees, model and action receiver are synthetic. */
 @RunWith(RobolectricTestRunner::class)
@@ -39,6 +40,7 @@ class RecoveryIntegrationTest {
         var wrongSavedIdentity=false
         var wrongSavedDate=false
         val actions=mutableListOf<Pair<SessionToken,Action>>()
+        var resumeRead:suspend(CalendarDraft)->CalendarInspection={CalendarInspection(emptyList(),true)}
         val original=CalendarDraft("key",TargetKind.EVENT,"原标题","me@example.test","Events","Australia/Sydney",
             "2026-10-27T02:00:00Z","2026-10-27T03:00:00Z",null,"2026-10-27T01:45:00Z","[octopus:key]\n来源：招聘邮件")
         var saved=original
@@ -47,10 +49,10 @@ class RecoveryIntegrationTest {
             UiElement(2,"EditText",draft.notes,editable=editing,resourceId="calendar:id/description"),
             UiElement(3,"TextView",if(!editing && wrongSavedIdentity)"other@example.test"else draft.account,resourceId="calendar:id/account_name"),
             UiElement(4,"TextView",draft.calendarName,resourceId="calendar:id/calendar_name"),
-            UiElement(5,"TextView",if(!editing && wrongSavedDate)"2026-10-28"else"2026-10-27",resourceId="calendar:id/start_date"),
-            UiElement(6,"TextView",if(!editing && swappedSavedTimes)"14:00"else"13:00",resourceId="calendar:id/start_time"),
-            UiElement(7,"TextView",if(!editing && swappedSavedTimes)"13:00"else"14:00",resourceId="calendar:id/end_time"),
-            UiElement(8,"TextView","15 minutes before"),UiElement(11,"TextView","2026-10-27",resourceId="calendar:id/end_date"),
+            UiElement(5,"TextView",if(!editing && wrongSavedDate)"2026-10-28"else Instant.parse(draft.start ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalDate().toString(),resourceId="calendar:id/start_date"),
+            UiElement(6,"TextView",if(!editing && swappedSavedTimes)"14:00"else Instant.parse(draft.start ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalTime().toString(),resourceId="calendar:id/start_time"),
+            UiElement(7,"TextView",if(!editing && swappedSavedTimes)"13:00"else Instant.parse(draft.end ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalTime().toString(),resourceId="calendar:id/end_time"),
+            UiElement(8,"TextView","15 minutes before"),UiElement(11,"TextView",Instant.parse(draft.end ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalDate().toString(),resourceId="calendar:id/end_date"),
             UiElement(30,"TextView",draft.account))+
             if(editing)listOf(UiElement(9,"Button","Save",clickable=true))else emptyList())
         suspend fun initialize() {
@@ -89,7 +91,7 @@ class RecoveryIntegrationTest {
                     return Decision(if(goal.startsWith("Open the matching"))Action.Click(20)else Action.SubmitSearch(10),"synthetic navigation")
                 }
             },{scope.testScheduler.currentTime})
-            port=CalendarGuiPort(navigator,broker,state.token,"virtual-B",shell)
+            port=CalendarGuiPort(navigator,broker,state.token,"virtual-B",shell){resumeRead(it)}
         }
         fun point()=CalendarCheckpoint("source",original,CalendarPhase.PREPARE,before)
         suspend fun ready()=port.recover(point(),WriteStatus.HUMAN_HELD) as CalendarRecovery.Ready
@@ -125,7 +127,7 @@ class RecoveryIntegrationTest {
         val f=fixture()
         f.screen=f.screen.copy(elements=f.screen.elements.map {if(it.id==6)it.copy(text="14:00")else if(it.id==7)it.copy(text="13:00")else it})
         val result=f.port.recover(f.point(),WriteStatus.HUMAN_HELD) as CalendarRecovery.Blocked
-        assertEquals("RESUME_UNCLASSIFIED_CHANGE",result.code);assertTrue(f.actions.isEmpty());assertEquals(0,f.views)
+        assertEquals("RESUME_EDITOR_NEEDS_USER",result.code);assertTrue(f.actions.isEmpty());assertEquals(0,f.views)
     }
     @Test fun missingMarkerKeepsEditorAndDoesNotNavigate()=runTest {
         val f=fixture();f.screen=f.screen.copy(elements=f.screen.elements.map {if(it.id==2)it.copy(text="人工删除标记")else it})
@@ -207,4 +209,45 @@ class RecoveryIntegrationTest {
         f.broker.requestTakeover(f.state.token.sessionId);questions.answer(question.id,UserAnswer(0,emptyMap()))
         assertTrue(pending.await().exceptionOrNull() is ActionRejected)
     }
+    @Test fun changedDateAndCrossMidnightTimeAreSavedWithoutRefillingAndReopened()=runTest {
+        val f=fixture()
+        f.saved=f.saved.copy(start="2026-10-28T12:30:00Z",end="2026-10-28T14:00:00Z",remindAt="2026-10-28T12:15:00Z")
+        f.screen=f.scene(f.saved,true)
+        val ready=f.ready();assertEquals(f.saved,ready.draft)
+        assertEquals(0,f.views);assertTrue(f.actions.isEmpty())
+        f.port.save(ready.prepared)
+        assertEquals(f.saved.contentDigest(),f.port.reopenAndVerify(ready.draft)!!.draftDigest)
+        assertEquals(1,f.actions.count {it.second==Action.Click(9)})
+        assertTrue(f.actions.none {it.second is Action.SetText});assertEquals(0,f.inserts)
+    }
+    @Test fun manuallySavedNewDateIsReopenedAndAdoptedWithoutSave()=runTest {
+        val f=fixture();f.saved=f.saved.copy(start="2026-10-30T02:00:00Z",end="2026-10-30T03:00:00Z",remindAt="2026-10-30T01:45:00Z")
+        f.screen=f.scene(f.saved,false)
+        assertEquals(f.saved,(f.port.recover(f.point(),WriteStatus.UNKNOWN) as CalendarRecovery.Verified).draft)
+        assertTrue(f.actions.none {it.second==Action.Click(9) || it.second is Action.SetText})
+    }
+    @Test fun confirmationShowsNewIntervalReminderAndConflictScopeLocally()=runTest {
+        val f=fixture();var shown:UserQuestion?=null
+        val questions=UserReviews(f.broker){shown=it}
+        val review=WorkflowReviews(questions,f.state.token,ZoneId.of("Australia/Sydney"))
+        val new=f.saved.copy(start="2026-10-30T02:00:00Z",end="2026-10-30T03:00:00Z",remindAt="2026-10-30T01:45:00Z")
+        val busy=CalendarInspection(listOf(BusyInterval(Instant.parse(new.start),Instant.parse(new.end))),false,"scope unavailable")
+        val pending=async {review.confirmResume(new,busy)};runCurrent()
+        val question=requireNotNull(shown)
+        assertTrue(question.detail.contains("2026-10-30T13:00"));assertTrue(question.detail.contains("2026-10-30T14:00"))
+        assertTrue(question.detail.contains("2026-10-30T12:45"));assertTrue(question.detail.contains("scope unavailable"))
+        questions.answer(question.id,UserAnswer(1,emptyMap()));assertFalse(pending.await())
+    }
+
+    @Test fun conflictInspectionIsReadOnlyAndRejectsTakeoverDuringRead()=runTest {
+        val f=fixture();val ready=f.ready();var calls=0
+        f.resumeRead={draft -> calls++;assertEquals(ready.draft,draft);CalendarInspection(emptyList(),true)}
+        assertTrue(f.port.inspectResume(ready.draft).complete)
+        assertTrue(f.actions.isEmpty());assertEquals(0,f.views);assertEquals(0,f.modelCalls)
+        f.resumeRead={f.broker.requestTakeover(f.state.token.sessionId);CalendarInspection(emptyList(),true)}
+        fails<ActionRejected>{f.port.inspectResume(ready.draft)}
+        f.resumeRead={calls++;CalendarInspection(emptyList(),true)}
+        fails<ActionRejected>{f.port.inspectResume(ready.draft)};assertEquals(1,calls)
+    }
+
 }

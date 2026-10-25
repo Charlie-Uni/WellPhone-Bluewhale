@@ -1,6 +1,8 @@
 package com.octopus.agent
 
 import android.content.Intent
+import android.Manifest
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import android.provider.Settings
 import android.net.Uri
@@ -32,12 +34,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
+    private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(
                 primary = Color(0xFF255D50), background = Color(0xFFF5F3EE), surface = Color.White)) {
-                Workbench(onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                Workbench(onCalendarRead = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
+                    onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     onOverlay = { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName"))) })
             }
@@ -45,7 +49,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun Workbench(onAccessibility: () -> Unit, onOverlay: () -> Unit, vm: WorkbenchViewModel = viewModel()) {
+@Composable private fun Workbench(onCalendarRead: () -> Unit, onAccessibility: () -> Unit, onOverlay: () -> Unit, vm: WorkbenchViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     var config by remember { mutableStateOf(state.config) }
     var endpoint by remember { mutableStateOf(state.model.endpoint) }
@@ -72,6 +76,9 @@ class MainActivity : ComponentActivity() {
                         OutlinedButton(onClick = onAccessibility) { Text("开启无障碍") }
                     }
                     Text("使用无线调试启动的 Shizuku。先创建 A/B 并准备已登录的邮箱与日历；设备兼容性尚未真机验证。",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onCalendarRead) { Text("授权只读日历冲突检查") }
+                    Text("接管改时间后读取本机已同步日程，保留未保存页面；只检查本轮日历账号，不读取到模型。未授权则请你人工确认。",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }

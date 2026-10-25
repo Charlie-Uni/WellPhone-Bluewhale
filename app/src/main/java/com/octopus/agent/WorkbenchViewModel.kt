@@ -412,7 +412,8 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val workflow = MailCalendarWorkflow(
                     GmailGuiPort(navigator, mailState.token, reviews), workflowModel,
-                    CalendarGuiPort(navigator, app.broker, calendarState.token, calendar.handle, service),
+                    CalendarGuiPort(navigator, app.broker, calendarState.token, calendar.handle, service,
+                        com.octopus.agent.workflow.CalendarConflictReader(app)::inspect),
                     WorkflowReviews(reviews, calendarState.token, ZoneId.of(config.localZone)),
                     app.store, WriteLedger(app.store), writer = app.calendarWriter, checkpoint = run.checkpoint,
                     onOutcome = { outcome ->

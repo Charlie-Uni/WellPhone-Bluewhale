@@ -32,7 +32,7 @@ sealed interface CalendarRecovery {
     data class Blocked(val code: String) : CalendarRecovery
 }
 
-/** These narrow profiles adopt title/notes only. Unknown date/time edits remain on screen. */
+/** Only explicit field roles can be adopted; other content and structure remain sealed. */
 object ResumeEvidence {
     private val titleIds = setOf("title", "event_title", "title_input", "task_title", "task_name")
     private val noteIds = setOf("description", "event_description", "description_input", "notes", "note")
@@ -44,26 +44,28 @@ object ResumeEvidence {
         if (point == null && contentEditor(calendar)) throw GuiNeedsUser("RESUME_UNRELATED_EDITOR")
     }
     fun bound(original: CalendarDraft, candidate: CalendarDraft): Boolean =
-        candidate.copy(title = original.title, notes = original.notes) == original &&
+        ResumeTimes.valid(original, candidate) &&
             candidate.title.isNotBlank() && candidate.title.length <= 8_000 && candidate.notes.length <= 24_000 &&
             Regex("\\[octopus:[^\\]]+]").findAll(candidate.notes).map { it.value }.toList() == listOf(original.marker) &&
             runCatching { PrivacyGate.safeBody(MailMetadata("", "招聘面试"), true, candidate.title + "\n" + candidate.notes) }.isSuccess
 
     fun candidate(observation: Observation, original: CalendarDraft, editing: Boolean): CalendarDraft? {
-        if (!CalendarEvidence.recoveryTimes(observation, original)) return null
-        if (CalendarEvidence.matches(observation, original, editing)) return original
+        val timed = ResumeTimes.read(observation, original) ?: return null
         val title = observation.elements.filter { it.resourceId.substringAfterLast('/') in titleIds && it.editable == editing }
             .singleOrNull()?.text ?: return null
         val notes = observation.elements.filter { it.resourceId.substringAfterLast('/') in noteIds && it.editable == editing }
-            .singleOrNull()?.text ?: original.notes
-        val candidate = original.copy(title = title, notes = notes)
+            .singleOrNull()?.text ?: return null
+        val candidate = timed.copy(title = title, notes = notes)
         return candidate.takeIf { bound(original, it) && CalendarEvidence.matches(observation, it, editing) }
     }
     fun sameOtherFields(before: Observation, after: Observation): Boolean {
         if (before.truncated || after.truncated || before.windowId != after.windowId || before.displayId != after.displayId ||
             before.packageName != after.packageName) return false
-        fun fixed(scene: Observation) = scene.elements.filterNot { it.resourceId.substringAfterLast('/') in titleIds + noteIds }
-        // Any unclassified change (including swapped times) requires manual review, even if all old time strings remain visible.
+        fun fixed(scene: Observation) = scene.elements.map {
+            if (it.resourceId.substringAfterLast('/') in titleIds + noteIds + ResumeTimes.fieldIds)
+                it.copy(text = "", description = "") else it
+        }
+        // Values of supported roles may change; node identity, bounds and all other fields must match.
         return fixed(before) == fixed(after)
     }
 }

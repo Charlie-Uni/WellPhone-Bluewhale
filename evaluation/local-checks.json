@@ -1,6 +1,6 @@
 {
-  "recordedAtUTC": "2026-10-25T01:16:46.505258+00:00",
-  "scope": "Local core tests + Robolectric production views, adapters, GUI ports, navigator, broker, reviews and SQLite; synthetic services/screens/model/action delivery, no device/emulator/online model evaluation",
+  "recordedAtUTC": "2026-10-25T12:07:59.819064+00:00",
+  "scope": "Local core tests + Robolectric production views/adapters/GUI ports/navigator/broker/reviews/SQLite/read-only calendar reader; synthetic services/screens/model/action delivery/Provider cursors. No device/emulator/online model evaluation.",
   "environment": {
     "os": "Darwin",
     "architecture": "arm64",
@@ -8,7 +8,7 @@
     "gradle": "8.11.1"
   },
   "coreTests": {
-    "tests": 111,
+    "tests": 125,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -20,7 +20,8 @@
     "com.octopus.core.GuiNavigatorTest": 4,
     "com.octopus.core.HumanTextTest": 10,
     "com.octopus.core.PreviewTouchTest": 18,
-    "com.octopus.core.RecoveryTest": 16,
+    "com.octopus.core.RecoveryTest": 21,
+    "com.octopus.core.ResumeTimesTest": 9,
     "com.octopus.core.RulesTest": 23,
     "com.octopus.core.WorkflowTest": 16
   },
@@ -30,8 +31,8 @@
     "minSdk": 34,
     "targetSdk": 35,
     "artifact": "app/build/outputs/apk/debug/app-debug.apk",
-    "bytes": 25851518,
-    "sha256": "d39a55fd3a8205544dd77e73285fa556b30df8f540a82f237cfdb1aef60918b1"
+    "bytes": 25610030,
+    "sha256": "87d17965f0b050cfb193ff2a3aed175c8f19b36519df01815d9589eee6622490"
   },
   "lint": {
     "status": "PASSED_WITH_WARNINGS",
@@ -76,7 +77,7 @@
   "emailCalendarWorkflow": "IMPLEMENTED_AND_WIRED_NOT_DEVICE_VALIDATED",
   "githubCI": {
     "previousRunConclusion": "PASSED",
-    "previousRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40144157612",
+    "previousRun": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40150056973",
     "latestRuns": "https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions",
     "note": "Local evidence record; consult commit-specific CI for the current remote result"
   },
@@ -127,7 +128,7 @@
     ]
   },
   "androidUiTests": {
-    "tests": 99,
+    "tests": 121,
     "failures": 0,
     "errors": 0,
     "skipped": 0,
@@ -135,7 +136,8 @@
       "com.octopus.agent.accessibility.HumanTextAccessTest": 30,
       "com.octopus.agent.bridge.DisplayTouchInjectorTest": 8,
       "com.octopus.agent.overlay.OverlayIntegrationTest": 31,
-      "com.octopus.agent.workflow.RecoveryIntegrationTest": 30
+      "com.octopus.agent.workflow.CalendarConflictReaderTest": 14,
+      "com.octopus.agent.workflow.RecoveryIntegrationTest": 38
     },
     "robolectric": "4.16.1",
     "windowSdk": 35,
@@ -146,12 +148,16 @@
     "graphics": "NATIVE_SKIA_WITH_SYNTHETIC_PREVIEW",
     "systemServices": "SHADOWED",
     "motionEventDisplayMetadata": "EXPLICIT_TEST_SHADOW",
-    "scope": "Production views and adapters; recovery integration runs production CalendarGuiPort, GuiNavigator, SessionBroker, LocalStore and WorkflowReviews against synthetic GUI/shell/model/actions. No real WorkbenchViewModel/Shizuku/App integration.",
+    "scope": "Production views/adapters/GUI ports/navigator/broker/reviews/SQLite and CalendarConflictReader. Synthetic GUI/shell/model/actions and ContentProvider cursors; no real system CalendarProvider or WorkbenchViewModel/Shizuku/App integration.",
     "textAdapterSdks": [
       34,
       35
     ],
     "recoverySdks": [
+      34,
+      35
+    ],
+    "calendarReaderSdks": [
       34,
       35
     ]
@@ -179,8 +185,8 @@
     "autoSaveSendOrWorkflowResume": "TEXT_BRIDGE_DOES_NOT_SUBMIT; WORKFLOW_RESUME_HANDLES_NEW_CONFIRMATION_AND_SAVE; NO_AUTO_SEND"
   },
   "recoveryEvaluation": {
-    "coreTests": 16,
-    "androidTests": 30,
+    "coreTests": 21,
+    "androidTests": 38,
     "mode": "IN_PROCESS_AUTHORIZED_RUN_AND_SYNTHETIC_GUI_ONLY",
     "verifiedLocally": [
       "workflow checkpoint and completed item cursor",
@@ -196,14 +202,35 @@
       "start/end time swaps and date/account role checks",
       "lookup phase cannot bypass unknown current detail",
       "task reminder field profile",
-      "workflow and input admission barriers"
+      "workflow and input admission barriers",
+      "new local dates/times and cross-midnight saved without refilling and reopened",
+      "strict complete-date and meridiem parsing and DST gap/overlap rejection",
+      "relative event reminders and task notification-before-deadline boundary",
+      "old time strings and notes subsets cannot bypass reading exact current roles",
+      "new interval conflict inspection before confirmation and again before Save",
+      "changed conflict scope preserves HUMAN_HELD and unsaved form",
+      "manual saved new time rechecked without another Save",
+      "read-only provider calendar/account scope, instances, all-day, own marker and duplicate marker handling",
+      "missing permission, unsynced or unavailable scope explicitly incomplete",
+      "calendar read rejected after takeover"
     ],
     "wiring": "IMPLEMENTED_AND_COMPILED_NOT_DEVICE_VALIDATED",
     "windowCallbacks": "TESTED_WITH_RECORDED_CALLBACKS_NOT_REAL_VIEWMODEL",
-    "automaticAdoption": "SUPPORTED_TITLE_NOTES_FIELDS_WITH_COMPLETE_ROLE_EVIDENCE_ONLY",
+    "automaticAdoption": "TITLE_NOTES_COMPLETE_ROLE_BOUND_DATES_TIMES; EVENT_RELATIVE_REMINDER_RETAINED; TASK_DEADLINE_UNCHANGED",
     "otherEdits": "KEEP_PAGE_AND_CHECKPOINT_REQUIRE_MANUAL_HANDLING",
     "processRestartAutoResume": "NOT_IMPLEMENTED",
     "realAppResults": "NOT_RUN",
-    "onlineModel": "NOT_RUN"
+    "onlineModel": "NOT_RUN",
+    "timeFieldTests": 9,
+    "calendarReaderTests": 14,
+    "conflictRecheck": {
+      "permission": "READ_CALENDAR_EXPLICIT_USER_ACTION_ONLY",
+      "writes": "GUI_ONLY_NO_WRITE_CALENDAR",
+      "scope": "CONFIGURED_ACCOUNT_ALL_VISIBLE_SYNC_ENABLED_READABLE_CALENDARS_LOCAL_INSTANCES_ONLY",
+      "incomplete": "FRESH_EXPLICIT_USER_CHOICE_OR_KEEP_PAGE",
+      "repeat": "AFTER_CONFIRMATION_CHANGE_BLOCKS_SAVE",
+      "atomicity": "TWO_SNAPSHOTS_NOT_A_CROSS_APP_TRANSACTION",
+      "systemProviderAndSync": "NOT_DEVICE_VALIDATED"
+    }
   }
 }

@@ -138,26 +138,9 @@ object CalendarEvidence {
             runCatching { LocalTime.of(resolvedHour, rawMinute.toInt()) == local.toLocalTime() }.getOrDefault(false)
         }
     }
-    /** Recovery cannot infer start/end order from a bag of visible time strings. */
-    fun recoveryTimes(observation: Observation, draft: CalendarDraft): Boolean {
-        fun field(vararg names: String) = observation.elements.filter { it.resourceId.substringAfterLast('/') in names }
-            .singleOrNull()?.let(::content)
-        if (field("account_name", "calendar_account")?.trim()?.equals(draft.account, true) != true ||
-            field("calendar_name", "list_name", "task_list_name")?.trim()?.equals(draft.calendarName, true) != true) return false
-        val zone = ZoneId.of(draft.localZone)
-        if (draft.kind == TargetKind.TASK) {
-            val date = field("task_date", "reminder_date", "due_date") ?: return false
-            val time = field("task_time", "reminder_time", "due_time") ?: return false
-            return datePresent(date, Instant.parse(draft.remindAt).atZone(zone).toLocalDate()) && timePresent(time,draft.remindAt,zone)
-        }
-        val start = field("start_time", "event_start_time") ?: return false
-        val end = field("end_time", "event_end_time") ?: return false
-        val startDate = field("start_date", "event_start_date") ?: return false
-        val endDate = field("end_date", "event_end_date") ?: return false
-        return timePresent(start, requireNotNull(draft.start), zone) && timePresent(end, requireNotNull(draft.end), zone) &&
-            datePresent(startDate, Instant.parse(draft.start).atZone(zone).toLocalDate()) &&
-            datePresent(endDate, Instant.parse(draft.end).atZone(zone).toLocalDate())
-    }
+    /** Recovery verifies each time against its own role, including its date. */
+    fun recoveryTimes(observation: Observation, draft: CalendarDraft): Boolean =
+        ResumeTimes.read(observation, draft) == draft
     fun matches(observation: Observation, draft: CalendarDraft, editing: Boolean): Boolean {
         if (observation.truncated || observation.packageName != "com.google.android.calendar") return false
         val nodes = fieldNodes(observation)

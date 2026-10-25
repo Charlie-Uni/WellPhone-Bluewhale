@@ -4,7 +4,7 @@
 
 Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。
 
-**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 111 项 core 行为测试及 99 项 Robolectric Android 层测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
+**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 125 项 core 行为测试及 121 项 Robolectric Android 层测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
 ## 场景与第一版范围
 
@@ -32,6 +32,7 @@ flowchart TB
   Workflow --> Plan[开始时一次计划调用]
   Workflow --> Extract[招聘邮件提取 / 本地时间证据检查]
   Workflow --> Review[本地时间与冲突确认]
+  Workflow --> LocalCalendar[交还后只读本机日历复查 · 保留未保存表单]
   Workflow --> Ledger[规范事项快照 / 写入 Ledger]
   Workflow --> Runner[单执行 Agent · GuiNavigator]
   Runner --> Privacy[压缩控件树 / 本地隐私投影]
@@ -56,6 +57,7 @@ flowchart TB
 | GUI 读取邮箱 | 真实作用于用户的 App 和账号；加载、控件树与版本差异提高实现成本 |
 | 虚拟屏 + Shizuku shell，非 Root | 争取输入与焦点隔离；必须实测有效 display flags、App 多屏和 ROM 行为 |
 | 事件用 ACTION_INSERT 预填，GUI 核对保存 | 避开脆弱日期选择器；不把直接写 Calendar Provider 当作 GUI 完成 |
+| 恢复使用 CalendarContract 只读冲突查询 | 不导航离开人工未保存表单；需主动授权 READ_CALENDAR，只覆盖该账号本机已同步的可见日历 |
 | 一次计划调用 + 单执行 Agent | 减少编排和调试成本，明确动作责任 |
 | 会话控制代次 E | 接管立即拒绝旧指令；已提交的系统调用仍要等待结束 |
 
@@ -94,6 +96,8 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 手机准备：开发者选项、无线调试与 Shizuku 配对；每次重启后重新启动 Shizuku；手动启用八爪鱼无障碍服务。小米等 ROM 的额外“USB 调试（安全设置）”要求待实测。可选状态胶囊需要悬浮权限；没有该权限仍可使用工作台。无需 Root、无需切换输入法。
 
+接管修改时间后，可在工作台主动“授权只读日历冲突检查”，只申请 READ_CALENDAR。恢复阶段读取配置账号的可见日历实例，冲突信息留在本机；未授权或范围不完整会明确请用户人工核对，后台不弹授权框。没有 WRITE_CALENDAR，保存仍通过目标 App GUI。
+
 工作台配置步骤：
 
 1. 连接 Shizuku、开启无障碍，创建 A/B，在真实预览中完成 Gmail/Calendar 登录和必要权限准备。
@@ -115,9 +119,9 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 草稿只留内存，不直接发模型或记正文日志；密码字段不提供编辑。字段身份、原值、窗口、E 或预览版本变化会使草稿失效。切屏、隐藏、放大、交还均丢弃未确认编辑；已提交动作等待结算，结果未知时不自动重试。后续 Agent 仍只能按授权范围观察，人工新增文字不会扩大邮件读取或出站范围。
 
-本轮任务在接管时保留检查点。交还后不再启动 App 或发送旧预填 Intent；先观察当前页面，当前事项只有受支持的标题/备注变化时，保留字段并在新确认后保存。已保存的内容只重开核实。时间等未知变化、无来源标记或 Save 回执未知时，保留页面并请求人工处理。沿用的修改写入规范事项供后续去重；人工持有的待保存事项也不会因重跑而重新创建。详细规则见 [安全恢复](docs/RESUME.md)。
+本轮任务在接管时保留检查点。交还后先观察当前页面，受支持的标题/备注/完整日期和时间会保留；事件提醒保持原相对间隔，原邮件时间留在备注中。用新时间只读复查冲突，新确认后再查一次，才保存当前表单并重开核实。已保存事项只核实与复查。模糊时间、夏令时歧义、账号变化、无来源标记或未知保存保留页面。修订持久化供后续去重，旧冲突审批失效；任务可改通知时刻，原截止保持。详细边界见 [安全恢复](docs/RESUME.md)。
 
-以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入、中文键盘和 ROM 兼容性均待真机验收。普通 Activity/ViewModel 不保证长期后台驻留，进程退出后不自动恢复。31 项 SDK 35 窗口集成测试、8 项 SDK 34/35 触摸契约测试、30 项文字适配器与 30 项恢复集成测试；输出小窗/放大窗口/文字面板的合成渲染图。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
+以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入、中文键盘和 ROM 兼容性均待真机验收。普通 Activity/ViewModel 不保证长期后台驻留，进程退出后不自动恢复。31 项 SDK 35 窗口集成测试、8 项 SDK 34/35 触摸契约测试、30 项文字适配器、38 项恢复集成和 14 项只读日历查询测试；输出小窗/放大窗口/文字面板的合成渲染图。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
 
 ## 不打扰与隐私
 
@@ -131,7 +135,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 统一采用 [AC01–AC12](evaluation/README.md)。自动化单元测试与真实 App 验收分开报告，未测项标为“待验证”。真实评估比较无 Agent、固定频率、负载调速三组，每组至少三轮，统计结果正确率、核实完成时间、前台 jank、接管耗时、错误路由与重复写入。
 
-本地结果：**111 项 core 行为测试与 99 项 Android 层测试通过，调试 APK 构建与签名校验通过**。包括邮件到日历、去重、未知保存恢复、文字修改、交还后的新观察/票据、保留修订与剩余事项继续。core 使用模拟端口与合成控件树；Android 层运行生产 View、适配器、GUI 端口、Navigator、Broker 和本地存储。窗口、无障碍树/回执、shell、模型决定和输入接收端由测试模拟；未连通真实 WorkbenchViewModel→Shizuku→App，不能报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
+本地结果：**125 项 core 行为测试与 121 项 Android 层测试通过，调试 APK 构建与签名校验通过**。包括邮件到日历、去重、未知保存恢复、文字修改、交还后的新观察/票据、保留修订与剩余事项继续。core 使用模拟端口与合成控件树；Android 层运行生产 View、适配器、GUI 端口、Navigator、Broker 和本地存储。窗口、无障碍树/回执、shell、模型决定和输入接收端由测试模拟；未连通真实 WorkbenchViewModel→Shizuku→App，不能报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
 
 交付物：可构建仓库、APK、完整原始录屏与 90–120 秒演示、实测结果、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。当前不报告设备成功率和性能收益。
 

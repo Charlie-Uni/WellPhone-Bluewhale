@@ -102,11 +102,22 @@ class GmailGuiPort(
 class CalendarGuiPort(
     private val navigator: GuiNavigator, private val broker: SessionBroker,
     private val token: SessionToken, private val handle: String, private val shell: IShellService,
+    private val resumeInspection: suspend (CalendarDraft) -> CalendarInspection = {
+        CalendarInspection(emptyList(), false, "RESUME_READ_UNAVAILABLE")
+    },
 ) : CalendarPort {
     private data class Pending(val draft: CalendarDraft, val ticket: PreparedWrite, val seal: Observation? = null)
     private val pending = mutableMapOf<String, Pending>()
     private var recoveryRead = false
     private val protectedVerification = mutableSetOf<String>()
+    override suspend fun inspectResume(draft: CalendarDraft): CalendarInspection {
+        val state = broker.state(token.sessionId)
+        if (state.token != token || state.owner != Owner.AGENT) throw ActionRejected("Resume check is stale")
+        return resumeInspection(draft).also {
+            val after = broker.state(token.sessionId)
+            if (after.token != token || after.owner != Owner.AGENT) throw ActionRejected("Resume check was revoked")
+        }
+    }
     private suspend fun shellAction(block: () -> Unit) {
         val observation = navigator.observe(token)
         if (recoveryRead && ResumeEvidence.contentEditor(observation)) throw GuiNeedsUser("RESUME_EDITOR_OPEN")
