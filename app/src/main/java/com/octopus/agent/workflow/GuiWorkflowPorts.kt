@@ -103,9 +103,13 @@ class CalendarGuiPort(
     private val navigator: GuiNavigator, private val broker: SessionBroker,
     private val token: SessionToken, private val handle: String, private val shell: IShellService,
 ) : CalendarPort {
-    private val pending = mutableMapOf<String, Pair<CalendarDraft, PreparedWrite>>()
+    private data class Pending(val draft: CalendarDraft, val ticket: PreparedWrite, val seal: Observation? = null)
+    private val pending = mutableMapOf<String, Pending>()
+    private var recoveryRead = false
+    private val protectedVerification = mutableSetOf<String>()
     private suspend fun shellAction(block: () -> Unit) {
         val observation = navigator.observe(token)
+        if (recoveryRead && ResumeEvidence.contentEditor(observation)) throw GuiNeedsUser("RESUME_EDITOR_OPEN")
         broker.registerObservation(token, observation.observationId)
         broker.agentAction(token, UUID.randomUUID().toString(), observation.observationId) {
             withContext(Dispatchers.IO) { block() }
@@ -142,7 +146,12 @@ class CalendarGuiPort(
             Json.encodeToString(safeValues) +
             "\nUse the supplied note text only for the description field. Never click Save."),
             { projection(it, safeValues) },
-            { observation, action ->
+            allow@ { observation, action ->
+                if (recoveryRead && (ResumeEvidence.contentEditor(observation) ||
+                    action is Action.Click && observation.elements.any { it.id == action.nodeId &&
+                        label(it).lowercase() in setOf("create", "创建", "add", "添加", "event", "活动", "task", "任务", "cancel", "取消") })) {
+                    return@allow false
+                }
                 val prematureCreate = action is Action.Click &&
                     observation.elements.any { it.id == action.nodeId && label(it).lowercase() in setOf("create", "创建", "add", "添加") } &&
                     observation.elements.any { it.editable && (it.text == draft.title || it.text.contains(draft.marker)) }
@@ -185,8 +194,9 @@ class CalendarGuiPort(
                 })
             if (CalendarEvidence.absent(observation, draft.marker)) return FindRecord.Absent
             reach(draft, "Open the matching search result ${draft.title}. Do not edit or save it.",
-                { CalendarEvidence.matches(it, draft, false) ||
-                    (draft.kind == TargetKind.TASK && CalendarEvidence.matches(it, draft, true)) }, readOnly = true)
+                { (CalendarEvidence.matches(it, draft, false) ||
+                    (draft.kind == TargetKind.TASK && CalendarEvidence.matches(it, draft, true))) &&
+                    (!recoveryRead || CalendarEvidence.recoveryTimes(it,draft)) }, readOnly = true)
             FindRecord.Found(VerifiedRecord("gui:${draft.key}", draft.contentDigest(), true))
         } catch (_: GuiNeedsUser) { FindRecord.Unknown }
     }
@@ -199,13 +209,16 @@ class CalendarGuiPort(
             "set notification at remindAt. Note text: ${redactUrls(draft.notes)}\nStop with verified fields and Save visible.",
             { CalendarEvidence.matches(it, draft, true) })
         val prepared = PreparedWrite(UUID.randomUUID().toString(), draft.contentDigest(), token)
-        pending[prepared.id] = draft to prepared
+        pending[prepared.id] = Pending(draft, prepared)
         return prepared
     }
     override suspend fun save(prepared: PreparedWrite) {
-        val (draft, stored) = pending.remove(prepared.id) ?: throw ActionRejected("Save ticket consumed")
+        val (draft, stored, seal) = pending.remove(prepared.id) ?: throw ActionRejected("Save ticket consumed")
         check(stored == prepared && prepared.token == token)
         val fresh = navigator.observe(token)
+        if (seal != null && (fresh.windowId != seal.windowId || fresh.elements != seal.elements || fresh.truncated != seal.truncated)) {
+            throw GuiNeedsUser("RESUME_PAGE_CHANGED")
+        }
         check(CalendarEvidence.matches(fresh, draft, true)) { "Draft fields changed before save" }
         val save = CalendarEvidence.saveControl(fresh) ?: throw GuiNeedsUser("SAVE_CONTROL_AMBIGUOUS")
         // The workflow has persisted WRITE_PENDING before this only permitted Save click.
@@ -213,11 +226,48 @@ class CalendarGuiPort(
         delay(500)
     }
     override suspend fun reopenAndVerify(draft: CalendarDraft): VerifiedRecord? {
-        // ACTION_VIEW leaves the editor, then search opens persisted data independently.
-        repeat(3) {
-            (find(draft) as? FindRecord.Found)?.proof?.let { return it }
-            delay(1_000)
+        if (draft.key in protectedVerification) {
+            val current = navigator.observe(token)
+            if (ResumeEvidence.contentEditor(current)) throw GuiNeedsUser("RESUME_SAVE_UNSETTLED")
+            recoveryRead = true
         }
-        return null
+        // ACTION_VIEW leaves the editor, then search opens persisted data independently.
+        return try {
+            repeat(3) {
+                (find(draft) as? FindRecord.Found)?.proof?.let { return it }
+                delay(1_000)
+            }
+            null
+        } finally { recoveryRead = false }
+    }
+    override suspend fun recover(point: CalendarCheckpoint, status: WriteStatus): CalendarRecovery {
+        // First operation after handback is a fresh local read. No launch/ACTION_INSERT/old node replay.
+        val current = navigator.observe(token)
+        if (current.truncated) return CalendarRecovery.Blocked("RESUME_TREE_INCOMPLETE")
+        if (ResumeEvidence.contentEditor(current)) {
+            if (point.beforeHuman?.let { ResumeEvidence.sameOtherFields(it,current) } != true) {
+                return CalendarRecovery.Blocked("RESUME_UNCLASSIFIED_CHANGE")
+            }
+            val candidate = ResumeEvidence.candidate(current, point.draft, editing = true)
+                ?: return CalendarRecovery.Blocked("RESUME_EDITOR_NEEDS_USER")
+            if (status != WriteStatus.HUMAN_HELD || point.phase !in setOf(CalendarPhase.PREPARE, CalendarPhase.READY_TO_SAVE)) {
+                return CalendarRecovery.Blocked("RESUME_SAVE_STATE_UNKNOWN")
+            }
+            val ticket = PreparedWrite(UUID.randomUUID().toString(), candidate.contentDigest(), token)
+            pending[ticket.id] = Pending(candidate, ticket, current)
+            protectedVerification += candidate.key
+            return CalendarRecovery.Ready(candidate, ticket)
+        }
+        val candidate = ResumeEvidence.candidate(current, point.draft, editing = false)
+        if (candidate == null && current.elements.any { !it.editable && (it.text + it.description).contains(point.draft.marker) }) {
+            return CalendarRecovery.Blocked("RESUME_DETAIL_NEEDS_USER")
+        }
+        if (candidate == null && point.phase in setOf(CalendarPhase.LOOKUP, CalendarPhase.INSPECT)) return CalendarRecovery.RetryRead
+        recoveryRead = true
+        return try {
+            val expected = candidate ?: point.draft
+            val proof = (find(expected) as? FindRecord.Found)?.proof
+            if (proof != null) CalendarRecovery.Verified(expected, proof) else CalendarRecovery.Blocked("RESUME_RESULT_UNKNOWN")
+        } finally { recoveryRead = false }
     }
 }

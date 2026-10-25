@@ -43,6 +43,7 @@ data class WorkbenchState(
     val running: Boolean = false, val plan: TaskPlan? = null, val progress: WorkflowProgress? = null,
     val question: UserQuestion? = null, val results: List<ItemOutcome> = emptyList(),
     val capsule: Boolean = false, val keySaved: Boolean = false,
+    val resumePending: Boolean = false,
 )
 
 class WorkbenchViewModel(application: Application) : AndroidViewModel(application) {
@@ -86,6 +87,12 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
     })
     private val capsule = StatusCapsule(application) { openPreview() }
     private var execution: Job? = null
+    private class RunContext(val config: WorkflowConfig, val model: ModelSettings, val mailId: String, val calendarId: String) {
+        val checkpoint = WorkflowCheckpoint()
+        val budget = GuiStepBudget(80)
+        var pausing = false
+    }
+    private var activeRun: RunContext? = null
     private val reviews = UserReviews(app.broker) { question ->
         mutableState.value = mutableState.value.copy(question = question)
         if (question != null) capsule.update("等待确认 · 点击查看", mutableState.value.capsule)
@@ -95,10 +102,12 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
             connector.service.collect { service ->
                 if (service == null) {
                     preview.hide()
+                    activeRun = null
                     execution?.cancel()
+                    execution = null
                     reviews.cancel()
                     mutableState.value.sessions.forEach { app.broker.stop(it.state.token.sessionId) }
-                    mutableState.value = mutableState.value.copy(connected = false, sessions = emptyList(), running = false,
+                    mutableState.value = mutableState.value.copy(connected = false, sessions = emptyList(), running = false, resumePending = false,
                         message = "未连接。shell 断开后旧会话停止，不自动恢复。")
                     publishPreview()
                 } else {
@@ -132,6 +141,7 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun connect() { runCatching { connector.connect() }.onFailure { showError(it) } }
     fun create(calendar: Boolean) = work {
+        check(activeRun == null)
         val service = requireNotNull(connector.service.value)
         val packageName = if (calendar) "com.google.android.calendar" else "com.google.android.gm"
         check(mutableState.value.sessions.none { it.state.packageName == packageName })
@@ -148,6 +158,7 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         publishPreview()
     }
     fun launch(probe: ProbeSession) = work {
+        check(activeRun == null) { "Finish the current run before relaunching an App" }
         val service = requireNotNull(connector.service.value)
         withContext(Dispatchers.IO) { service.launch(probe.handle, probe.state.packageName) }
         mutableState.value = mutableState.value.copy(message = "启动请求已接受，请检查预览与窗口绑定")
@@ -166,15 +177,36 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         }, message = "display/window/package 已匹配；仅本地读取 ${observation.elements.size} 个元素，未上传模型")
     }
     fun takeover(probe: ProbeSession) = work {
-        val state = app.broker.requestTakeover(probe.state.token.sessionId)
-        withContext(Dispatchers.IO) {
-            connector.service.value?.bindControl(probe.handle, state.token.sessionId, state.token.epoch, false)
+        pauseSessions(listOf(probe))
+    }
+    private suspend fun pauseSessions(targets: List<ProbeSession>) {
+        val run = activeRun
+        run?.pausing = true
+        val states = targets.map { app.broker.requestTakeover(it.state.token.sessionId, holdForWorkflow = run != null) }
+        targets.forEach { refreshSession(it) }
+        var bindingFailure: Exception? = null
+        try {
+            targets.zip(states).forEach { (probe,state) ->
+                withContext(Dispatchers.IO) { connector.service.value?.bindControl(probe.handle,state.token.sessionId,state.token.epoch,false) }
+                app.store.record(AgentEvent("TAKEOVER_REQUESTED",state.token.sessionId,state.token.epoch))
+            }
+        } catch (error: Exception) { bindingFailure = error } finally {
+            execution?.cancel();reviews.cancel();execution?.join()
         }
-        app.store.record(AgentEvent("TAKEOVER_REQUESTED", state.token.sessionId, state.token.epoch))
-        refreshSession(probe)
-        mutableState.value = mutableState.value.copy(message =
-            if (state.owner == Owner.HUMAN) "已接管；可在悬浮小窗中原地操作"
-            else "正在等待已提交输入结束；暂不允许人工输入")
+        run?.checkpoint?.pause(WriteLedger(app.store))
+        run?.checkpoint?.calendar?.takeIf { it.beforeHuman == null }?.let { point ->
+            val bound = app.broker.state(run.calendarId)
+            val before = requireNotNull(OctopusAccessibilityService.instance).observe(bound)
+            check(before.token == bound.token && before.displayId == bound.displayId && before.packageName == bound.packageName)
+            run.checkpoint.calendar = point.copy(beforeHuman = before)
+        }
+        bindingFailure?.let { throw it }
+        run?.pausing = false
+        states.filter { it.owner in setOf(Owner.HUMAN,Owner.DRAINING) }.forEach { app.broker.completeTakeover(it.token) }
+        targets.forEach { refreshSession(it) }
+        mutableState.value = mutableState.value.copy(resumePending = run != null,
+            message = "已接管；交还全部会话后将重新观察，核对修改再继续")
+        capsule.update("已暂停 · 交还后核对修改",mutableState.value.capsule)
     }
     fun returnControl(probe: ProbeSession) = work {
         preview.cancelTextInput()
@@ -187,8 +219,12 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         }
         refreshSession(probe)
         mutableState.value = mutableState.value.copy(message = "控制权已交还；后续动作必须重新观察")
+        val run = activeRun
+        if (run != null && !run.pausing && listOf(run.mailId,run.calendarId).all { id ->
+                app.broker.state(id).owner == Owner.AGENT }) execute(run, resumed = true)
     }
     fun close(probe: ProbeSession) = work {
+        check(activeRun == null) { "Finish the current run before closing a display" }
         val stopped = app.broker.stop(probe.state.token.sessionId)
         check(stopped.inFlight == 0) { "Wait for in-flight input before display release" }
         withContext(Dispatchers.IO) { connector.service.value?.closeDisplay(probe.handle) }
@@ -300,7 +336,7 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
             "操作未完成：${error.javaClass.simpleName}。检查 Shizuku / 无障碍 / App 安装与系统兼容性；未回退主屏。")
     }
     fun configure(model: ModelSettings, config: WorkflowConfig, apiKey: String) {
-        if (mutableState.value.running) return
+        if (activeRun != null) return
         runCatching {
             val endpoint = java.net.URL(model.endpoint)
             require(endpoint.protocol == "https" && endpoint.userInfo == null && endpoint.query == null)
@@ -319,17 +355,28 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { reviews.answer(question.id, UserAnswer(option, fields)) }
     }
     fun start(config: WorkflowConfig) {
-        if (mutableState.value.running) return
+        if (activeRun != null || mutableState.value.running) return
+        val mail = mutableState.value.sessions.singleOrNull { it.state.packageName == "com.google.android.gm" } ?: return
+        val calendar = mutableState.value.sessions.singleOrNull { it.state.packageName == "com.google.android.calendar" } ?: return
+        val run = RunContext(config, mutableState.value.model, mail.state.token.sessionId, calendar.state.token.sessionId)
+        activeRun = run
+        execute(run, resumed = false)
+    }
+    private fun execute(run: RunContext, resumed: Boolean) {
+        if (activeRun !== run || execution?.isActive == true) return
+        val config = run.config
         execution = viewModelScope.launch {
-            mutableState.value = mutableState.value.copy(running = true, question = null, results = emptyList(),
-                config = config, progress = WorkflowProgress("PLANNING", "正在生成执行计划"))
+            mutableState.value = mutableState.value.copy(running = true, resumePending = false, question = null,
+                results = if (resumed) run.checkpoint.outcomes.values.toList() else emptyList(),
+                config = config, progress = if (resumed) WorkflowProgress("RECONCILING", "正在重新观察当前页面")
+                    else WorkflowProgress("PLANNING", "正在生成执行计划"))
             try {
                 config.validate()
                 val service = requireNotNull(connector.service.value)
                 val observer = requireNotNull(OctopusAccessibilityService.instance)
                 val probes = mutableState.value.sessions
-                val mail = probes.single { it.state.packageName == "com.google.android.gm" }
-                val calendar = probes.single { it.state.packageName == "com.google.android.calendar" }
+                val mail = probes.single { it.state.token.sessionId == run.mailId }
+                val calendar = probes.single { it.state.token.sessionId == run.calendarId }
                 val mailState = app.broker.state(mail.state.token.sessionId)
                 val calendarState = app.broker.state(calendar.state.token.sessionId)
                 require(mailState.owner == Owner.AGENT && calendarState.owner == Owner.AGENT)
@@ -337,64 +384,91 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
                     app.store.record(AgentEvent("SESSION_BOUND", bound.token.sessionId, bound.token.epoch,
                         displayId = bound.displayId, packageName = bound.packageName))
                 }
-                val model = mutableState.value.model
+                val model = run.model
                 require(secrets.read()?.isNotBlank() == true)
                 val transport = ChatTransport(model.endpoint, model.model) { requireNotNull(secrets.read()) }
                 val workflowModel = HttpWorkflowModel(transport)
-                val plan = Coordinator(workflowModel, app.broker).start(config.goal).plan
-                mutableState.value = mutableState.value.copy(plan = plan)
-                capsule.update(plan.summary, mutableState.value.capsule)
+                if (!resumed) {
+                    val plan = Coordinator(workflowModel, app.broker).start(config.goal).plan
+                    mutableState.value = mutableState.value.copy(plan = plan)
+                    capsule.update(plan.summary, mutableState.value.capsule)
+                }
                 withContext(Dispatchers.IO) {
                     for (probe in listOf(mail, calendar)) {
                         val token = if (probe.handle == mail.handle) mailState.token else calendarState.token
                         service.bindControl(probe.handle, token.sessionId, token.epoch, true)
-                        service.launch(probe.handle, probe.state.packageName)
+                        if (!resumed) service.launch(probe.handle, probe.state.packageName)
                     }
                 }
-                delay(500)
+                if (!resumed) delay(500)
                 val navigator = GuiNavigator(app.broker, observer, observer, HttpDecisionModel(transport),
-                    SystemClock::elapsedRealtime, budget = GuiStepBudget(80), journal = app.store)
+                    SystemClock::elapsedRealtime, budget = run.budget, journal = app.store)
+                if (resumed) {
+                    val mailScene = navigator.observe(mailState.token)
+                    val calendarScene = navigator.observe(calendarState.token)
+                    listOf(mailState,calendarState).forEach { state -> app.store.record(AgentEvent("RESUME_OBSERVED",
+                        state.token.sessionId,state.token.epoch,displayId = state.displayId,packageName = state.packageName)) }
+                    ResumeEvidence.checkScenes(mailScene,calendarScene,run.checkpoint.calendar,run.checkpoint.documents == null)
+                }
                 val workflow = MailCalendarWorkflow(
                     GmailGuiPort(navigator, mailState.token, reviews), workflowModel,
                     CalendarGuiPort(navigator, app.broker, calendarState.token, calendar.handle, service),
                     WorkflowReviews(reviews, calendarState.token, ZoneId.of(config.localZone)),
-                    app.store, WriteLedger(app.store), writer = app.calendarWriter,
+                    app.store, WriteLedger(app.store), writer = app.calendarWriter, checkpoint = run.checkpoint,
                     onOutcome = { outcome ->
-                        mutableState.value = mutableState.value.copy(results = mutableState.value.results
+                        if (activeRun === run) mutableState.value = mutableState.value.copy(results = mutableState.value.results
                             .filter { it.key != outcome.key } + outcome)
                     },
                 ) { progress ->
-                    mutableState.value = mutableState.value.copy(progress = progress)
-                    capsule.update(progress.detail, mutableState.value.capsule)
+                    if (activeRun === run) {
+                        mutableState.value = mutableState.value.copy(progress = progress)
+                        capsule.update(progress.detail, mutableState.value.capsule)
+                    }
                 }
                 val report = workflow.run(config)
                 mutableState.value = mutableState.value.copy(results = report.outcomes,
                     message = "流程结束：已核实 ${report.verified} 项。未核实、等待与未知分别保留。")
             } catch (cancelled: CancellationException) {
-                mutableState.value = mutableState.value.copy(message = "任务已暂停；重新开始会先检查持久化记录")
+                if (activeRun === run) mutableState.value = mutableState.value.copy(message = "任务已暂停；交还后重新观察并核对修改")
                 throw cancelled
             } catch (failure: Exception) {
+                if (activeRun !== run) return@launch
+                if (failure is GuiNeedsUser && failure.reasonCode != "MAIL_ACCOUNT_NOT_CONFIRMED" && !run.pausing) {
+                    run.checkpoint.pause(WriteLedger(app.store))
+                }
                 val reason = (failure as? GuiNeedsUser)?.reasonCode ?: failure.javaClass.simpleName
-                mutableState.value = mutableState.value.copy(message = "流程停止：$reason。未核实的写入不计为完成。")
-                capsule.update("需要查看 · $reason", mutableState.value.capsule)
+                if (run.checkpoint.needsResume) {
+                    val message = "恢复已暂停，当前页面和修改已保留。请接管后核对/保存，再交还；也可结束本轮。未核实的写入不计完成。"
+                    mutableState.value = mutableState.value.copy(message = message,progress = WorkflowProgress("RESUME_BLOCKED",message))
+                    preview.showNotice(message)
+                    capsule.update("恢复需处理 · 点击查看",mutableState.value.capsule)
+                    val current = app.broker.state(run.calendarId)
+                    app.store.record(AgentEvent("RESUME_BLOCKED",current.token.sessionId,current.token.epoch,
+                        displayId = current.displayId,packageName = current.packageName))
+                } else {
+                    mutableState.value = mutableState.value.copy(message = "流程停止：$reason。未核实的写入不计为完成。")
+                    capsule.update("需要查看 · $reason", mutableState.value.capsule)
+                }
             } finally {
-                mutableState.value = mutableState.value.copy(running = false, question = null,
-                    config = config.copy(scopeAuthorized = false))
+                if (activeRun === run) {
+                    val keep = run.pausing || run.checkpoint.needsResume
+                    if (!keep) activeRun = null
+                    mutableState.value = mutableState.value.copy(running = false, resumePending = keep, question = null,
+                        config = config.copy(scopeAuthorized = false))
+                }
             }
         }
     }
-    fun pauseWorkflow() {
+    fun pauseWorkflow() = work {
         forwardingTarget = null; touches.cancel()
-        execution?.cancel(); reviews.cancel()
-        viewModelScope.launch {
-            for (probe in mutableState.value.sessions) {
-                val state = app.broker.requestTakeover(probe.state.token.sessionId)
-                withContext(Dispatchers.IO) {
-                    connector.service.value?.bindControl(probe.handle, state.token.sessionId, state.token.epoch, false)
-                }
-                refreshSession(probe)
-            }
-            capsule.update("已暂停 · 显式交还后可继续", mutableState.value.capsule)
+        pauseSessions(mutableState.value.sessions)
+    }
+    fun cancelWorkflow() = work {
+        try { pauseSessions(mutableState.value.sessions) } finally {
+            activeRun = null
+            execution = null
+            mutableState.value = mutableState.value.copy(running = false,resumePending = false,question = null,
+                config = mutableState.value.config.copy(scopeAuthorized = false),message = "本轮已结束；重新开始需要重新授权，人工持有/未知写入仍先查询")
         }
     }
     override fun onCleared() { execution?.cancel(); reviews.cancel(); preview.hide(); capsule.close(); connector.close(); super.onCleared() }

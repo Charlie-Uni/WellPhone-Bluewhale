@@ -375,7 +375,7 @@ class OverlayIntegrationTest {
         show(item(owner=Owner.HUMAN,epoch=1));val draft=openEditor()
         overlay.finishTextEdit(draft.target,"文字已核实")
         assertEquals(1,views().size);assertTrue(root().findViewById<TextView>(R.id.overlay_status).text.contains("文字已核实"))
-        assertEquals("交还 Agent（不自动恢复任务）",root().findViewById<Button>(R.id.overlay_control).text.toString())
+        assertEquals("交还 Agent（重新观察后继续）",root().findViewById<Button>(R.id.overlay_control).text.toString())
         assertTrue(handBacks.isEmpty())
     }
     @Test fun nativeGraphicsRendersLocalTextEditor() {

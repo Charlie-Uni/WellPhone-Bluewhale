@@ -23,6 +23,7 @@ class SessionBroker {
     private data class Entry(
         var state: SessionState, val usedActionIds: MutableSet<String> = mutableSetOf(),
         var latestObservation: String? = null,
+        var takeoverHeld: Boolean = false,
     )
     private val mutex = Mutex()
     private val entries = mutableMapOf<String, Entry>()
@@ -71,18 +72,28 @@ class SessionBroker {
                 mutex.withLock {
                     val entry = entry(token.sessionId)
                     entry.state = entry.state.copy(inFlight = 0,
-                        owner = if (entry.state.owner == Owner.DRAINING) Owner.HUMAN else entry.state.owner)
+                        owner = if (entry.state.owner == Owner.DRAINING && !entry.takeoverHeld) Owner.HUMAN else entry.state.owner)
                 }
             }
         }
     }
 
-    suspend fun requestTakeover(id: String): SessionState = mutex.withLock {
+    suspend fun requestTakeover(id: String, holdForWorkflow: Boolean = false): SessionState = mutex.withLock {
         val entry = entry(id)
         if (entry.state.owner != Owner.AGENT) return@withLock entry.state
         entry.latestObservation = null
+        entry.takeoverHeld = holdForWorkflow
         entry.state = entry.state.copy(token = next(entry.state.token),
-            owner = if (entry.state.inFlight == 0) Owner.HUMAN else Owner.DRAINING)
+            owner = if (entry.state.inFlight == 0 && !holdForWorkflow) Owner.HUMAN else Owner.DRAINING)
+        entry.state
+    }
+
+    /** Only release after the old runner settled and its possible writes were persisted as held/unknown. */
+    suspend fun completeTakeover(token: SessionToken): SessionState = mutex.withLock {
+        val entry = entry(token.sessionId)
+        if (entry.state.token != token || entry.state.owner !in setOf(Owner.DRAINING, Owner.HUMAN)) throw ActionRejected("Takeover is stale")
+        entry.takeoverHeld = false
+        if (entry.state.inFlight == 0) entry.state = entry.state.copy(owner = Owner.HUMAN)
         entry.state
     }
 

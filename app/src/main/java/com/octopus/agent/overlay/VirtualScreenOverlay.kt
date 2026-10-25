@@ -174,7 +174,7 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
         }
         stateText?.text = notice?.let { "$status\n$it" } ?: status
         control?.apply {
-            text=if(owner==Owner.HUMAN) "交还 Agent（不自动恢复任务）" else "原地接管当前任务"
+            text=if(owner==Owner.HUMAN) "交还 Agent（重新观察后继续）" else "原地接管当前任务"
             isEnabled=owner==Owner.AGENT || owner==Owner.HUMAN
         }
         textButton?.isEnabled=owner==Owner.HUMAN && textTarget==null

@@ -1,6 +1,6 @@
 package com.octopus.core
 
-enum class WriteStatus { PREPARED, WRITE_PENDING, UNKNOWN, VERIFIED }
+enum class WriteStatus { PREPARED, HUMAN_HELD, WRITE_PENDING, UNKNOWN, VERIFIED }
 data class WriteRecord(val key: String, val status: WriteStatus, val targetLocator: String? = null)
 interface WriteStore {
     // Implement atomically; persistent Android implementation uses a unique key transaction.
@@ -15,9 +15,29 @@ class WriteLedger(private val store: WriteStore) {
         val record = store.insertIfAbsent(WriteRecord(key, WriteStatus.PREPARED))
         return when (record.status) {
             WriteStatus.PREPARED -> WriteDecision.MAY_PREPARE
-            WriteStatus.WRITE_PENDING, WriteStatus.UNKNOWN -> WriteDecision.VERIFY_EXISTING
+            WriteStatus.HUMAN_HELD, WriteStatus.WRITE_PENDING, WriteStatus.UNKNOWN -> WriteDecision.VERIFY_EXISTING
             WriteStatus.VERIFIED -> WriteDecision.ALREADY_VERIFIED
         }
+    }
+    suspend fun status(key: String): WriteStatus = requireNotNull(store.read(key)).status
+    suspend fun holdForHuman(key: String) {
+        val record = requireNotNull(store.read(key))
+        val next = when (record.status) {
+            WriteStatus.PREPARED -> WriteStatus.HUMAN_HELD
+            WriteStatus.WRITE_PENDING -> WriteStatus.UNKNOWN
+            else -> return
+        }
+        check(store.compareAndSet(record, record.copy(status = next)))
+    }
+    suspend fun authorizeResume(key: String) {
+        val record = requireNotNull(store.read(key))
+        check(record.status == WriteStatus.HUMAN_HELD)
+        check(store.compareAndSet(record, record.copy(status = WriteStatus.PREPARED)))
+    }
+    suspend fun reconciled(key: String, locator: String) {
+        require(locator.isNotBlank())
+        val record = requireNotNull(store.read(key))
+        check(store.compareAndSet(record, record.copy(status = WriteStatus.VERIFIED, targetLocator = locator)))
     }
     suspend fun beforeSave(key: String) {
         val record = requireNotNull(store.read(key))

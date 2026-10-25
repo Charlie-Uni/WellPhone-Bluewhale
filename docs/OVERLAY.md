@@ -1,14 +1,14 @@
 # 悬浮小窗与原地接管
 
-状态：代码已接入，95 项 core 行为测试、69 项 Robolectric Android 层测试与 Android 构建验证；真实系统触摸、焦点、IME 和 ROM 兼容性按用户要求暂缓。没有新建设备演示或流畅度数据。
+状态：代码已接入，111 项 core 行为测试、99 项 Robolectric Android 层测试与 Android 构建验证；真实系统触摸、焦点、IME 和 ROM 兼容性按用户要求暂缓。没有新建设备演示或流畅度数据。
 
 ## 用户路径
 
 胶囊点击 → 展示 A/B 中选定的现有虚拟屏 → 默认只读 → 点击接管 → 撤销 Agent E → 等待 inFlight 归零 → HUMAN → 单指触摸。用户双击画面或点击放大按钮调整预览；拖动标题栏移动小窗。“隐藏”只关闭观察窗口，保留 HUMAN；“交还”先终止并排空触摸，再增加 E，后续 Agent 必须重新观察。
 
-当前单执行工作流在会话被撤销后停止，交还不自动恢复该轮；再次开始通过规范事项和 Ledger 查询恢复。会话隔离仍允许另一会话接收合法动作，不代表已经实现两个执行 Agent。
+当前单执行工作流在接管时保留本轮检查点，所有相关会话交还后重新观察并核对修改，继续未完成步骤。有原任务才恢复，手动探针没有任务则只交还控制权。另一会话的控制权独立，单执行器暂停期间不会假称另一个 Agent 仍在运行。完整规则见 [安全恢复](RESUME.md)。
 
-需要修改文字时，在虚拟屏打开编辑页面 → 点“输入文字” → 本地面板选择字段 → 修改/清空 → 点“写回所选字段” → 读回核对 → 在 App 中自行保存/发送 → 显式交还。不触发搜索回车或 Save；用户可先取消再修改其他字段。
+需要修改文字时，在虚拟屏打开编辑页面 → 点“输入文字” → 本地面板选择字段 → 修改/清空 → 点“写回所选字段” → 读回核对 → 显式交还。文字桥自身不触发搜索、Save 或发送；交还后可在新确认卡同意保存当前表单，也可先在 App 自行保存。
 
 ## 模块
 
@@ -44,6 +44,8 @@
 
 切屏、缩放、隐藏、配置变化与交还都会清空草稿和本地文字；已进入系统的 SET_TEXT 只能等待结算，无法撤销。交还先等触摸取消和文字动作结算，再增加 E。日志仅记录 HUMAN_TEXT_VERIFIED/UNKNOWN 与会话路由，不记录字段值；草稿不保存、不直接发模型。后续 Agent 的观察仍遵守原授权和隐私投影。
 
+有任务的接管额外等待旧执行器结算、写入状态落盘及人工操作前页面采样。交还产生新观察，恢复核对通过的标题/备注作为事项修订持久化，文字桥的临时输入草稿仍会丢弃。确认后页面再变化会拒绝 Save；恢复查询不创建、不丢弃草稿。时间字段或未知变化需人工处理。
+
 ## 本版限制
 
 - 单指点击、拖动和按住；双指触发取消。双击预留给窗口，不能把双击原样送给 App。
@@ -62,6 +64,7 @@
 | SDK 35 View/窗口集成 | 31 项；生产 StatusCapsule/VirtualScreenOverlay/LocalTextEditor、MotionEvent、Handler、字段选择/确认/取消/Back、窗口增删与配置变化；Native Graphics 绘制合成预览 |
 | SDK 34/35 适配器契约 | 4 个用例 × 2 个 SDK = 8 项；执行生产 DisplayTouchInjector 反射方法与事件构造，记录 displayId、目标 UID、模式、触点与按压状态 |
 | SDK 34/35 文字适配器 | 15 个用例 × 2 个 SDK = 30 项；生产 HumanTextAccess，模拟节点/窗口与 SET_TEXT 接收端，检查 Unicode/清空、排除密码、窗口/节点/原值/布局/E/过期拒绝、UNKNOWN 不重发、取消等待结算 |
+| SDK 34/35 恢复集成 | 15 个用例 × 2 个 SDK = 30 项；生产 CalendarGuiPort/Navigator/Broker/SQLite/确认端口，模拟 GUI/shell/模型/动作，检查保留字段、新票据、角色核实、未知保护与去重修订存储 |
 
 另有 10 项 core 文字控制器测试，使用真实 SessionBroker 和模拟端口，验证晚到读取、一次草稿、并发名额、另一会话和交还后的新观察。窗口测试通过测试数据驱动控制权状态并记录回调；未把真实 WorkbenchViewModel、Shizuku 和目标 App 连起来。WindowManager/InputManager、无障碍树与动作回执由 Shadow 模拟。Robolectric 默认 MotionEvent 未实现 displayId 存取，本仓库为该元数据添加了明确的 Shadow；因此参数测试验证的是适配器契约，系统接收、权限和焦点仍待实测。
 
@@ -73,6 +76,7 @@
 ./gradlew :app:testDebugUnitTest --tests 'com.octopus.agent.overlay.OverlayIntegrationTest'
 ./gradlew :app:testDebugUnitTest --tests 'com.octopus.agent.bridge.DisplayTouchInjectorTest'
 ./gradlew :app:testDebugUnitTest --tests 'com.octopus.agent.accessibility.HumanTextAccessTest'
+./gradlew :app:testDebugUnitTest --tests 'com.octopus.agent.workflow.RecoveryIntegrationTest'
 ```
 
 采用固定的 Robolectric 4.16.1、JDK 17，窗口测试 SDK 35，适配器覆盖 SDK 34/35。首次运行需下载 Maven Central 的框架运行时。[Robolectric 官方设置](https://robolectric.org/getting-started/)、[兼容说明](https://robolectric.org/compatibility_table/) 支持该测试路线。

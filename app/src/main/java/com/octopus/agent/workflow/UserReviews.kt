@@ -46,6 +46,14 @@ class UserReviews(private val broker: SessionBroker, private val present: (UserQ
 class WorkflowReviews(
     private val questions: UserReviews, private val calendarToken: SessionToken, private val zone: ZoneId,
 ) : ReviewPort {
+    override suspend fun confirmResume(draft: CalendarDraft): Boolean {
+        val start = draft.start ?: draft.remindAt
+        val answer = questions.ask(UserQuestion(token = calendarToken, title = "沿用当前修改继续",
+            detail = "${draft.title}\n${TimeRules.local(start, zone)}\n${draft.notes}\n\n" +
+                "当前页面已逐字段核对，不会再填回旧内容。暂停期间其他日程可能变化；确认后保存当前表单，并重开核实。",
+            options = listOf("沿用当前内容并保存", "先保留页面")))
+        return answer.option == 0
+    }
     override suspend fun reviewItem(item: RecruitmentItem, reasons: List<String>): RecruitmentItem? {
         fun local(value: String?) = value?.let {
             runCatching { Instant.parse(it).atZone(zone).toLocalDateTime().toString() }.getOrDefault(it)
