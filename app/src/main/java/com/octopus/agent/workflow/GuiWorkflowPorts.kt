@@ -256,11 +256,11 @@ class CalendarGuiPort(
         val current = navigator.observe(token)
         if (current.truncated) return CalendarRecovery.Blocked("RESUME_TREE_INCOMPLETE")
         if (ResumeEvidence.contentEditor(current)) {
-            if (point.beforeHuman?.let { ResumeEvidence.sameOtherFields(it,current) } != true) {
+            if (point.beforeHuman?.let { ResumeEvidence.sameOtherFields(it,current,point.draft.kind) } != true) {
                 return CalendarRecovery.Blocked("RESUME_UNCLASSIFIED_CHANGE")
             }
             val candidate = ResumeEvidence.candidate(current, point.draft, editing = true)
-                ?: return CalendarRecovery.Blocked("RESUME_EDITOR_NEEDS_USER")
+                ?: return CalendarRecovery.Blocked(ResumeTimes.problem(current, point.draft) ?: "RESUME_EDITOR_NEEDS_USER")
             if (status != WriteStatus.HUMAN_HELD || point.phase !in setOf(CalendarPhase.PREPARE, CalendarPhase.READY_TO_SAVE)) {
                 return CalendarRecovery.Blocked("RESUME_SAVE_STATE_UNKNOWN")
             }
@@ -271,7 +271,7 @@ class CalendarGuiPort(
         }
         val candidate = ResumeEvidence.candidate(current, point.draft, editing = false)
         if (candidate == null && current.elements.any { !it.editable && (it.text + it.description).contains(point.draft.marker) }) {
-            return CalendarRecovery.Blocked("RESUME_DETAIL_NEEDS_USER")
+            return CalendarRecovery.Blocked(ResumeTimes.problem(current, point.draft) ?: "RESUME_DETAIL_NEEDS_USER")
         }
         if (candidate == null && point.phase in setOf(CalendarPhase.LOOKUP, CalendarPhase.INSPECT)) return CalendarRecovery.RetryRead
         recoveryRead = true

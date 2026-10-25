@@ -143,6 +143,8 @@ object CalendarEvidence {
         ResumeTimes.read(observation, draft) == draft
     fun matches(observation: Observation, draft: CalendarDraft, editing: Boolean): Boolean {
         if (observation.truncated || observation.packageName != "com.google.android.calendar") return false
+        // TASK has separate notification/deadline roles; notes or other dates cannot stand in for notification fields.
+        if (draft.kind == TargetKind.TASK && !recoveryTimes(observation, draft)) return false
         val nodes = fieldNodes(observation)
         if (nodes.none { it.text.trim() == draft.title.trim() }) return false
         if (observation.elements.none { content(it).contains(draft.marker) && (!editing && !it.editable || editing) }) return false
@@ -162,9 +164,7 @@ object CalendarEvidence {
         if (draft.kind == TargetKind.EVENT &&
             !datePresent(text, Instant.parse(draft.end).atZone(zone).toLocalDate())) return false
         val reminder = if (draft.kind == TargetKind.EVENT) {
-            val minutes = java.time.Duration.between(Instant.parse(draft.remindAt), Instant.parse(draft.start)).toMinutes()
-            Regex("(?<![0-9])$minutes\\s*(minutes?|mins?|分钟|分)(\\s*(before|前))?", RegexOption.IGNORE_CASE)
-                .containsMatchIn(text)
+            ResumeTimes.reminderMatches(observation, draft)
         } else timePresent(text, draft.remindAt, zone)
         if (!reminder) return false
         val saveVisible = nodes.any { GuiPrivacy.saveNode(it) }

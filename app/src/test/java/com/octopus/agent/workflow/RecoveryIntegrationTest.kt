@@ -39,22 +39,35 @@ class RecoveryIntegrationTest {
         var swappedSavedTimes=false
         var wrongSavedIdentity=false
         var wrongSavedDate=false
+        var deadlineInNotes=false
+        var staleSavedDeadline=false
         val actions=mutableListOf<Pair<SessionToken,Action>>()
         var resumeRead:suspend(CalendarDraft)->CalendarInspection={CalendarInspection(emptyList(),true)}
         val original=CalendarDraft("key",TargetKind.EVENT,"原标题","me@example.test","Events","Australia/Sydney",
             "2026-10-27T02:00:00Z","2026-10-27T03:00:00Z",null,"2026-10-27T01:45:00Z","[octopus:key]\n来源：招聘邮件")
         var saved=original
-        fun scene(draft:CalendarDraft,editing:Boolean)=Observation(state.token,"template",3,7,"com.google.android.calendar",0,listOf(
+        fun scene(draft:CalendarDraft,editing:Boolean):Observation {
+            fun local(value:String)=Instant.parse(value).atZone(ZoneId.of(draft.localZone))
+            val times=if(draft.kind==TargetKind.EVENT)listOf(
+                UiElement(5,"TextView",if(!editing && wrongSavedDate)"2026-10-28"else local(draft.start!!).toLocalDate().toString(),resourceId="calendar:id/start_date"),
+                UiElement(6,"TextView",if(!editing && swappedSavedTimes)"14:00"else local(draft.start!!).toLocalTime().toString(),resourceId="calendar:id/start_time"),
+                UiElement(7,"TextView",if(!editing && swappedSavedTimes)"13:00"else local(draft.end!!).toLocalTime().toString(),resourceId="calendar:id/end_time"),
+                UiElement(8,"TextView",java.time.Duration.between(Instant.parse(draft.remindAt),Instant.parse(draft.start)).toMinutes().toString()+" minutes before",resourceId="calendar:id/notification"),
+                UiElement(11,"TextView",local(draft.end!!).toLocalDate().toString(),resourceId="calendar:id/end_date"))
+            else listOf(
+                UiElement(5,"TextView",local(draft.remindAt).toLocalDate().toString(),resourceId="calendar:id/notification_date"),
+                UiElement(6,"TextView",local(draft.remindAt).toLocalTime().toString(),resourceId="calendar:id/notification_time"))+
+                    if(draft.deadline!=null && !deadlineInNotes)listOf(
+                        UiElement(7,"TextView",if(!editing && staleSavedDeadline)"2026-10-28"else local(draft.deadline!!).toLocalDate().toString(),resourceId="calendar:id/deadline_date"),
+                        UiElement(11,"TextView",local(draft.deadline!!).toLocalTime().toString(),resourceId="calendar:id/deadline_time"))else emptyList()
+            return Observation(state.token,"template",3,7,"com.google.android.calendar",0,listOf(
             UiElement(1,"EditText",draft.title,editable=editing,resourceId="calendar:id/title"),
             UiElement(2,"EditText",draft.notes,editable=editing,resourceId="calendar:id/description"),
             UiElement(3,"TextView",if(!editing && wrongSavedIdentity)"other@example.test"else draft.account,resourceId="calendar:id/account_name"),
             UiElement(4,"TextView",draft.calendarName,resourceId="calendar:id/calendar_name"),
-            UiElement(5,"TextView",if(!editing && wrongSavedDate)"2026-10-28"else Instant.parse(draft.start ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalDate().toString(),resourceId="calendar:id/start_date"),
-            UiElement(6,"TextView",if(!editing && swappedSavedTimes)"14:00"else Instant.parse(draft.start ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalTime().toString(),resourceId="calendar:id/start_time"),
-            UiElement(7,"TextView",if(!editing && swappedSavedTimes)"13:00"else Instant.parse(draft.end ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalTime().toString(),resourceId="calendar:id/end_time"),
-            UiElement(8,"TextView","15 minutes before"),UiElement(11,"TextView",Instant.parse(draft.end ?: draft.remindAt).atZone(ZoneId.of(draft.localZone)).toLocalDate().toString(),resourceId="calendar:id/end_date"),
-            UiElement(30,"TextView",draft.account))+
+            UiElement(30,"TextView",draft.account))+times+
             if(editing)listOf(UiElement(9,"Button","Save",clickable=true))else emptyList())
+        }
         suspend fun initialize() {
             val agent=broker.create(3,"com.google.android.calendar")
             val human=broker.requestTakeover(agent.token.sessionId,true)
@@ -248,6 +261,68 @@ class RecoveryIntegrationTest {
         fails<ActionRejected>{f.port.inspectResume(ready.draft)}
         f.resumeRead={calls++;CalendarInspection(emptyList(),true)}
         fails<ActionRejected>{f.port.inspectResume(ready.draft)};assertEquals(1,calls)
+    }
+    private fun task(f:Fixture)=f.original.copy(kind=TargetKind.TASK,start=null,end=null,calendarName="My Tasks",
+        remindAt="2026-10-28T09:00:00Z",deadline="2026-10-28T10:00:00Z",notes=f.original.notes+"\n截止：2026-10-28T21:00+11:00")
+    @Test fun changedEventReminderSavesCurrentFormAndReopensExactNewSetting()=runTest {
+        val f=fixture();f.saved=f.saved.copy(remindAt="2026-10-27T01:30:00Z");f.screen=f.scene(f.saved,true)
+        val ready=f.ready();assertEquals(f.saved,ready.draft)
+        f.port.save(ready.prepared)
+        assertEquals(f.saved.contentDigest(),f.port.reopenAndVerify(ready.draft)!!.draftDigest)
+        assertEquals(1,f.actions.count {it.second==Action.Click(9)});assertTrue(f.actions.none {it.second is Action.SetText})
+    }
+    @Test fun nativeReminderAndDeadlineChangesAreKeptSavedAndReopened()=runTest {
+        val f=fixture();val original=task(f)
+        f.saved=original.copy(remindAt="2026-10-30T09:00:00Z",deadline="2026-10-30T10:00:00Z")
+        f.screen=f.scene(f.saved,true)
+        val point=f.point().copy(draft=original,beforeHuman=f.scene(original,true))
+        val ready=f.port.recover(point,WriteStatus.HUMAN_HELD) as CalendarRecovery.Ready
+        assertEquals(f.saved,ready.draft);assertTrue(f.actions.isEmpty());assertEquals(0,f.views)
+        f.port.save(ready.prepared)
+        assertEquals(f.saved.contentDigest(),f.port.reopenAndVerify(ready.draft)!!.draftDigest)
+        assertEquals(1,f.actions.count {it.second==Action.Click(9)});assertTrue(f.actions.none {it.second is Action.SetText})
+        assertEquals(0,f.inserts);assertEquals(0,f.launches)
+    }
+    @Test fun noteDeadlineAndNotificationChangesSurviveSaveWithoutNoteRewrite()=runTest {
+        val f=fixture();f.deadlineInNotes=true;val original=task(f)
+        f.saved=original.copy(remindAt="2026-10-30T08:00:00Z",deadline="2026-10-30T10:00:00Z",
+            notes=original.notes.replace("2026-10-28T21:00+11:00","2026-10-30T21:00+11:00")+"\n人工备注")
+        f.screen=f.scene(f.saved,true)
+        val ready=f.port.recover(f.point().copy(draft=original,beforeHuman=f.scene(original,true)),WriteStatus.HUMAN_HELD) as CalendarRecovery.Ready
+        assertEquals(f.saved,ready.draft);f.port.save(ready.prepared)
+        assertNotNull(f.port.reopenAndVerify(ready.draft));assertTrue(f.actions.none {it.second is Action.SetText})
+    }
+    @Test fun invalidReminderDeadlineOrderKeepsEditingAndSavedDetailsWithoutNavigation()=runTest {
+        for(editing in listOf(true,false))for(deadline in listOf("2026-10-28T09:00:00Z","2026-10-28T08:00:00Z")) {
+            val f=fixture();val original=task(f);f.saved=original.copy(deadline=deadline);f.screen=f.scene(f.saved,editing)
+            val result=f.port.recover(f.point().copy(draft=original,beforeHuman=f.scene(original,true)),if(editing)WriteStatus.HUMAN_HELD else WriteStatus.UNKNOWN) as CalendarRecovery.Blocked
+            assertEquals("RESUME_REMINDER_NOT_BEFORE_DEADLINE",result.code);assertTrue(f.actions.isEmpty());assertEquals(0,f.views)
+            assertEquals(editing,ResumeEvidence.contentEditor(f.screen))
+        }
+    }
+    @Test fun newlyChangedDeadlineAfterTicketRejectsSaveBeforeAnyClick()=runTest {
+        val f=fixture();val original=task(f);f.saved=original.copy(deadline="2026-10-30T10:00:00Z");f.screen=f.scene(f.saved,true)
+        val ready=f.port.recover(f.point().copy(draft=original,beforeHuman=f.scene(original,true)),WriteStatus.HUMAN_HELD) as CalendarRecovery.Ready
+        f.screen=f.screen.copy(elements=f.screen.elements.map {if(it.id==7)it.copy(text="2026-10-31")else it})
+        assertEquals("RESUME_PAGE_CHANGED",fails<GuiNeedsUser>{f.port.save(ready.prepared)}.reasonCode)
+        assertTrue(f.actions.isEmpty());assertEquals(0,f.views)
+    }
+    @Test fun manuallySavedNewDeadlineIsVerifiedWithoutSaveAndStaleDeadlineIsNotAcceptedOnRerun()=runTest {
+        val f=fixture();val original=task(f);f.saved=original.copy(deadline="2026-10-30T10:00:00Z")
+        f.screen=f.scene(f.saved,false)
+        val result=f.port.recover(f.point().copy(draft=original),WriteStatus.UNKNOWN) as CalendarRecovery.Verified
+        assertEquals(f.saved,result.draft);assertTrue(f.actions.none {it.second==Action.Click(9) || it.second is Action.SetText})
+        f.staleSavedDeadline=true
+        assertEquals(FindRecord.Unknown,f.port.find(f.saved))
+    }
+    @Test fun confirmationShowsNewNotificationAndDeadlineAndCanBeDeclined()=runTest {
+        val f=fixture();var shown:UserQuestion?=null;val questions=UserReviews(f.broker){shown=it}
+        val reviews=WorkflowReviews(questions,f.state.token,ZoneId.of("Australia/Sydney"))
+        val changed=task(f).copy(remindAt="2026-10-30T09:00:00Z",deadline="2026-10-30T10:00:00Z")
+        val pending=async {reviews.confirmResume(changed)};runCurrent()
+        val question=requireNotNull(shown)
+        assertTrue(question.detail.contains("提醒：2026-10-30T20:00"));assertTrue(question.detail.contains("截止设置：2026-10-30T21:00"))
+        questions.answer(question.id,UserAnswer(1,emptyMap()));assertFalse(pending.await())
     }
 
 }

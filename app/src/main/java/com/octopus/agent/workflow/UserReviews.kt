@@ -56,7 +56,9 @@ class WorkflowReviews(
         val answer = questions.ask(UserQuestion(token = calendarToken, title = "沿用当前修改继续",
             detail = "${draft.title}\n${TimeRules.local(start, zone)}" +
                 (draft.end?.let { " – ${TimeRules.local(it, zone)}" }.orEmpty()) +
-                "\n提醒：${TimeRules.local(draft.remindAt, zone)}\n${draft.notes}\n\n$conflict\n" +
+                "\n提醒：${TimeRules.local(draft.remindAt, zone)}" +
+                (draft.deadline?.let { "\n截止设置：${TimeRules.local(it, zone)}（已校验提醒早于截止）" }.orEmpty()) +
+                "\n备注（原样保留）：\n${draft.notes}\n\n$conflict\n" +
                 "保留你修改后的时间和当前表单。继续表示接受上述检查边界/冲突；已有日程不会修改。已保存的事项只核实，未保存的事项保存后重开核实。要改约或改成提醒，请先保留页面并接管调整。",
             options = listOf("保留新时间并继续", "先保留页面")))
         return answer.option == 0

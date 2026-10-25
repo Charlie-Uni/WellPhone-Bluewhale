@@ -439,7 +439,9 @@ class WorkbenchViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val reason = (failure as? GuiNeedsUser)?.reasonCode ?: failure.javaClass.simpleName
                 if (run.checkpoint.needsResume) {
-                    val message = "恢复已暂停，当前页面和修改已保留。请接管后核对/保存，再交还；也可结束本轮。未核实的写入不计完成。"
+                    val message = if (reason == "RESUME_REMINDER_NOT_BEFORE_DEADLINE")
+                        "提醒必须早于截止时间。当前页面和新设置已保留，请接管调整提醒或截止时间，再交还；也可结束本轮。"
+                    else "恢复已暂停，当前页面和修改已保留。请接管后核对/保存，再交还；也可结束本轮。未核实的写入不计完成。"
                     mutableState.value = mutableState.value.copy(message = message,progress = WorkflowProgress("RESUME_BLOCKED",message))
                     preview.showNotice(message)
                     capsule.update("恢复需处理 · 点击查看",mutableState.value.capsule)

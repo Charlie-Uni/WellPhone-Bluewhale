@@ -44,20 +44,20 @@ class ResumeTimesTest {
     @Test fun accountZoneAndOtherFieldChangesCannotBeLaunderedAsTimeEdits() {
         val before=scene();val after=scene(startTime="23:45")
         assertTrue(ResumeEvidence.sameOtherFields(before,after))
-        assertFalse(ResumeEvidence.sameOtherFields(before,after.copy(elements=after.elements.map {if(it.resourceId.endsWith("notification"))it.copy(text="5 minutes before")else it})))
+        assertFalse(ResumeEvidence.sameOtherFields(before,after.copy(elements=after.elements.map {if(it.resourceId.endsWith("notification"))it.copy(resourceId="calendar:id/other")else it})))
         assertNull(ResumeTimes.read(after.copy(elements=after.elements.map {if(it.resourceId.endsWith("account_name"))it.copy(text="other@example.test")else it}),original))
         assertNull(ResumeTimes.read(after.copy(elements=after.elements+UiElement(51,"TextView","Asia/Shanghai",resourceId="calendar:id/timezone")),original))
-        assertFalse(ResumeEvidence.bound(original,original.copy(start="2026-10-28T02:00:00Z",end="2026-10-28T03:00:00Z")))
+        assertFalse(ResumeEvidence.bound(original,original.copy(remindAt=original.start!!)))
     }
     @Test fun taskNotificationCanMoveButOriginalDeadlineIsRetained() {
-        val task=original.copy(kind=TargetKind.TASK,start=null,end=null,deadline="2026-10-29T10:00:00Z")
+        val task=original.copy(kind=TargetKind.TASK,start=null,end=null,deadline="2026-10-29T10:00:00Z",notes=original.notes+"\n\u622a\u6b62\uff1a2026-10-29T21:00+11:00")
         fun taskScene(time:String)=scene("2026-10-29",time).let { it.copy(elements=it.elements.filterNot {
             node -> node.resourceId.endsWith("end_time") || node.resourceId.endsWith("end_date")
-        }.map {node -> node.copy(resourceId=node.resourceId.replace("start_date","task_date").replace("start_time","task_time"))}) }
+        }.map {node -> node.copy(text=if(node.resourceId.endsWith("description"))task.notes else node.text,resourceId=node.resourceId.replace("start_date","task_date").replace("start_time","task_time"))}) }
         val changed=ResumeTimes.read(taskScene("20:00"),task)!!
         assertEquals("2026-10-29T09:00:00Z",changed.remindAt);assertEquals(task.deadline,changed.deadline)
         assertNull(ResumeTimes.read(taskScene("22:00"),task))
-        assertFalse(ResumeEvidence.bound(task,changed.copy(deadline="2026-10-30T10:00:00Z")))
+        assertFalse(ResumeEvidence.bound(task,changed.copy(deadline=changed.remindAt)))
     }
     @Test fun oldStringsStillVisibleCannotHideAValidNewCrossDayInterval() {
         val old=original.copy(start="2026-10-28T12:30:00Z",end="2026-10-28T14:00:00Z",remindAt="2026-10-28T12:15:00Z")

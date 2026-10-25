@@ -118,7 +118,7 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 
 ## 本地 Android 集成测试
 
-Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler 和 Native Graphics，31 项覆盖胶囊入口、接管、文字面板、双击、切任务、隐藏/旋转/权限变化与渲染。SDK 34/35 下另有 8 项触摸、30 项文字适配器、38 项恢复集成和 14 项只读日历查询，覆盖生产 GUI 端口/Navigator/Broker/SQLite/确认/CalendarConflictReader；系统回执、屏幕树和 Provider 游标为模拟。
+Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler 和 Native Graphics，31 项覆盖胶囊入口、接管、文字面板、双击、切任务、隐藏/旋转/权限变化与渲染。SDK 34/35 下另有 8 项触摸、30 项文字适配器、52 项恢复集成和 14 项只读日历查询，覆盖生产 GUI 端口/Navigator/Broker/SQLite/确认/CalendarConflictReader；系统回执、屏幕树和 Provider 游标为模拟。
 
 注入接收端与 displayId 元数据有显式测试 Shadow，窗口控制权由测试状态驱动；真实服务权限、InputDispatcher、主屏焦点及 OEM 行为仍在设备 AC01/AC08/AC11/AC12 验收。细节见 [OVERLAY.md](OVERLAY.md)。
 
@@ -128,4 +128,4 @@ Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler
 
 HumanTextController 绑定 TouchTarget（sessionId/E/display/package/预览版本）并持有一次草稿。HumanTextAccess 只从目标显示最上层应用窗口枚举字段，排除密码、不可见、禁用、无 SET_TEXT 动作和超长字段。写回前核对窗口 ID、节点身份/路径、resourceId、类型、边界、原值和 120 秒期限，最后派发与控制权检查在 Main 连续执行。读回最多等待 250ms，只证明字段内容，不证明 App 保存或发出消息。
 
-切换任务、隐藏、缩放、配置变化和交还均撤销输入草稿；晚到读取不能重开编辑器。文字和整段触摸共用 humanAction，交还等待在途文字结算。UNKNOWN 消费草稿且不重放。交还增加 E，按角色读取支持的标题/备注/日期/时间，保留修改与相对提醒。CalendarConflictReader 在本机只读查询配置账号的可见日历 Instances，避免离开未保存页面；新确认后再查，范围/区间变了则停住。修订持久化为 userDraft，清除旧冲突审批。主动申请 READ_CALENDAR，缺权限明确人工核对，不添加直接写入权限。首次保存前人工删改来源标记由 HUMAN_HELD 挡住。模糊时间或未知页面保留现场，详见 [安全恢复](RESUME.md)。
+切换任务、隐藏、缩放、配置变化和交还均撤销输入草稿；晚到读取不能重开编辑器。文字和整段触摸共用 humanAction，交还等待在途文字结算。UNKNOWN 消费草稿且不重放。交还增加 E，按当前目标类型读取支持的标题/备注/日期/时间/提醒/截止。事件读取唯一提前量控件；任务通知与截止分开，截止优先原生角色，否则读取结构化备注行，严格验证通知早于截止。只放行该类型支持的值变化，其余节点/布局仍封印。CalendarConflictReader 本机只读复查事件冲突，确认后再查，变化停住。确认卡显示新提醒/截止，userDraft 保存全部修订并清除旧冲突审批；保存后及重跑按新设置核实。主动 READ_CALENDAR 授权仍只用于冲突检查，本轮无新增权限。HUMAN_HELD 阻止重建，模糊页面保留现场，详见 [安全恢复](RESUME.md)。

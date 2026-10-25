@@ -33,7 +33,7 @@ class RecoveryTest {
         init { docs.forEachIndexed { i,doc -> store.items[doc.source.fingerprint()]=listOf(CanonicalItem("item$i",
             RecruitmentItem(if(event)ItemType.INTERVIEW else ItemType.MATERIALS_DEADLINE,doc.source.subject,doc.source,doc.body,"北京时间","Asia/Shanghai",
                 start=if(event)"2026-10-28T10:00:00Z"else null,end=if(event)"2026-10-28T11:00:00Z"else null,
-                deadline="2026-10-28T10:00:00Z",remindAt="2026-10-28T09:00:00Z",confidence=Confidence.HIGH,
+                deadline=if(event)null else "2026-10-28T10:00:00Z",remindAt="2026-10-28T09:00:00Z",confidence=Confidence.HIGH,
                 evidence=listOf(doc.body)),humanConfirmed=true)) } }
         var reads=0;var prepares=0;var saves=0;var confirms=0
         var approve=true;var blockPrepare=true;var loseAck=false;var fakeProof=false
@@ -248,6 +248,31 @@ class RecoveryTest {
         val changed=f.editor!!
         assertEquals(2,f.workflow().run(f.config).verified);assertEquals(changed,f.records["item0"])
         assertEquals(0,f.resumeChecks);assertEquals(2,f.workflow(WorkflowCheckpoint()).run(f.config).verified);assertEquals(2,f.saves)
+    }
+    @Test fun revisedReminderAndDeadlinePersistAndRerunUsesNewSettingsWithoutDuplicateSave()=runTest {
+        val f=Fixture();f.pause(this)
+        val changed=f.editor!!.copy(remindAt="2026-10-30T08:00:00Z",deadline="2026-10-30T10:00:00Z")
+        f.editor=changed;assertEquals(2,f.workflow().run(f.config).verified)
+        assertEquals(changed,f.records["item0"]);assertEquals(1,f.confirms);assertEquals(1,f.reads)
+        f.store.items.replaceAll {_,items->Json.decodeFromString<List<CanonicalItem>>(Json.encodeToString(items))}
+        assertEquals(changed,f.store.items.values.flatten().first {it.id=="item0"}.userDraft)
+        assertEquals(2,f.workflow(WorkflowCheckpoint()).run(f.config).verified);assertEquals(2,f.saves)
+    }
+    @Test fun invalidNewDeadlineStopsBeforeReviewSaveOrNextItemAndKeepsHold()=runTest {
+        for(deadline in listOf("2026-10-28T09:00:00Z","2026-10-28T08:00:00Z")) {
+            val f=Fixture();f.pause(this);f.editor=f.editor!!.copy(deadline=deadline)
+            assertFailsWith<IllegalStateException>{f.workflow().run(f.config)}
+            assertEquals(0,f.confirms);assertEquals(0,f.saves);assertEquals(1,f.prepares);assertNotNull(f.editor)
+            assertEquals(WriteStatus.HUMAN_HELD,f.ledger.status("item0"));assertTrue(f.checkpoint.needsResume)
+        }
+    }
+    @Test fun lostSaveReceiptKeepsNewReminderAndDeadlineAndOnlyQueriesOnNextResume()=runTest {
+        val f=Fixture();f.pause(this);f.loseAck=true
+        val changed=f.editor!!.copy(remindAt="2026-10-30T08:00:00Z",deadline="2026-10-30T10:00:00Z")
+        f.editor=changed
+        assertFailsWith<GuiNeedsUser>{f.workflow().run(f.config)}
+        assertEquals(WriteStatus.UNKNOWN,f.ledger.status("item0"));assertEquals(changed,f.records["item0"])
+        f.loseAck=false;assertEquals(2,f.workflow().run(f.config).verified);assertEquals(2,f.saves);assertEquals(1,f.confirms)
     }
 
 }

@@ -58,11 +58,11 @@ object ResumeEvidence {
         val candidate = timed.copy(title = title, notes = notes)
         return candidate.takeIf { bound(original, it) && CalendarEvidence.matches(observation, it, editing) }
     }
-    fun sameOtherFields(before: Observation, after: Observation): Boolean {
+    fun sameOtherFields(before: Observation, after: Observation, kind: TargetKind = TargetKind.EVENT): Boolean {
         if (before.truncated || after.truncated || before.windowId != after.windowId || before.displayId != after.displayId ||
             before.packageName != after.packageName) return false
         fun fixed(scene: Observation) = scene.elements.map {
-            if (it.resourceId.substringAfterLast('/') in titleIds + noteIds + ResumeTimes.fieldIds)
+            if (it.resourceId.substringAfterLast('/') in titleIds + noteIds + ResumeTimes.fieldIds(kind))
                 it.copy(text = "", description = "") else it
         }
         // Values of supported roles may change; node identity, bounds and all other fields must match.

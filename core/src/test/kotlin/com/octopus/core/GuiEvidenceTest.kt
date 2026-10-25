@@ -18,7 +18,7 @@ class GuiEvidenceTest {
         UiElement(4, "Text", "Events"),
         UiElement(5, "Text", "2026-10-27"),
         UiElement(6, "Text", "13:00 – 13:30"),
-        UiElement(7, "Text", "15 minutes before"),
+        UiElement(7, "Text", "15 minutes before", resourceId = "calendar:id/notification"),
     ) + if (editing) listOf(UiElement(8, "Button", "Save", clickable = true)) else emptyList())
 
     @Test fun completeReadOnlyDetailMatchesWithoutModelClaims() {
