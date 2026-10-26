@@ -6,6 +6,8 @@ Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是
 
 **已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 150 项 core、163 项 Robolectric Android 层和 8 项评估工具测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；现已恢复真机/在线验收，等待设备接入，见 [验收状态](evaluation/DEVICE_STATUS.md)。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
+补充系统层验证：Android 15 ARM64 模拟器中，生产 Shizuku 路径已创建双虚拟屏、读取预览、保留主屏焦点，并验证控制权交还、页面重建/切桌面后的会话保留和停止释放。实际触摸适配器通过 UID 匹配/拒绝探针；使用系统 App 测试，未验收真实 Gmail/Calendar。见 [模拟器报告](evaluation/EMULATOR_SMOKE.md)。
+
 ## 场景与第一版范围
 
 用户说：“把招聘标签里的面试、笔试和材料截止日期整理到日历；时间冲突先问我。”用户同时在主屏用微信输入中文或刷信息流，后台虚拟屏中的 Agent 阅读已登录邮箱并操作日历。

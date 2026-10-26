@@ -160,3 +160,13 @@
 最终套件数量、签名、lint 与 APK 指纹以 [本地检查](../evaluation/LOCAL_CHECKS.md) 为准。新服务测试使用 Robolectric，系统焦点、后台驻留、真实输入和录像不能由这些测试证明。AI 生成的说明必须与可复现产物一致，未运行项保留在 AC 表。
 
 用户随后授权恢复真机与在线验证。实际检查 ADB 和 USB 后均未发现手机，已记录 [当前验收状态](../evaluation/DEVICE_STATUS.md) 并请求连接设备；没有将先前的离线结果改写为真机成绩。密钥只在手机本地配置。
+
+## 第十轮：无手机时的系统层探针
+
+用户暂时无法连接手机。新建 Android 15 ARM64 AOSP 模拟器，使用已提交 APK、官方 Shizuku 13.6.0 和 shell UID 2000；未使用 adb root。生产入口创建 A/B，系统 App 由 ADB 作为测试准备放入，不改生产 App 白名单。实际系统确认 required flags、预览、焦点与停止释放；工作台原地接管/交还和页面重建验证控制器及真实 AIDL，而不是只有 Shadow。
+
+编写独立 Java 探针，从已安装 APK 加载生产 DisplayTouchInjector。UID 不匹配的 DOWN 被系统拒绝，但测试准备的后续输入出现 verifier 的 pointers already down。审查发现探针只在 DOWN 返回 true 后才发 CANCEL；系统校验器在拒绝前也可能看到 DOWN。探针改为尝试提交后未成功 UP 就清理，再按错误 UID → 正确 UID 连续重跑通过。生产 ShellService 原已有失败 CANCEL 清理，本轮没有改动 APK。
+
+重编时 SDK android.jar 被同步目录标为 dataless，读取超时；原命令组仍继续推送了旧 jar。改用非同步目录的官方 API 35 stub，并增加 build_touch_probe.py，编译/D8 任一步失败立即退出，成功校验 classes.dex 后才发布新产物；现有输出拒绝覆盖，避免假验证。CI 也编译探针。
+
+系统探针与 321 项离线测试分别记录；触摸探针在 Broker 外运行，不能声称已验收小窗到目标 App 的完整输入链。未登录邮箱、日历或模型，未做中文输入与性能统计，完整边界见 [模拟器报告](../evaluation/EMULATOR_SMOKE.md)。

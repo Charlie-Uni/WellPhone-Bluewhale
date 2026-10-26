@@ -19,6 +19,7 @@ jobs:
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --console=plain
       - run: python3 tools/local_evaluation.py --include-tools --output evaluation/runs/ci-local.json --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+      - run: python3 tools/build_touch_probe.py --sdk "$ANDROID_HOME" --output evaluation/runs/touch-probe/probe.jar
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -30,3 +31,4 @@ jobs:
             app/build/reports/lint-results-debug.*
             app/build/outputs/apk/debug/*.apk
             evaluation/runs/ci-local.json
+            evaluation/runs/touch-probe/probe.jar

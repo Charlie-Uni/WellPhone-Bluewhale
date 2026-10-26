@@ -13,6 +13,8 @@
 
 模型连接检查已经接入工作台，发送合成任务，不读邮箱、不操作 App。测试通过只代表 HTTPS、密钥/模型和计划协议可用。传输限制 HTTPS、禁重定向和自动重试，校验限长响应、拒绝截断/拒答/工具调用，错误不包含服务端正文；取消会断开连接并等待 I/O 清理。真实供应商尚未在线验证，可能不支持 json_object 或指定参数。
 
+模拟器已补做实际 Android 框架验证，系统 App 的显示、焦点与适配器结果见 [EMULATOR_SMOKE.md](../evaluation/EMULATOR_SMOKE.md)。真实目标 App、账号和手机验收保持独立。
+
 ## 真机验收顺序（已恢复授权，等待设备）
 
 1. 先运行只读预检，记录 APK/API、Shizuku UID、显示 flags 和已装 App 版本。Mate 60 Pro 的具体系统能力尚未确认；能安装普通 APK 以及支持所需 Android API 是前提。

@@ -1,0 +1,126 @@
+{
+  "dateSydney": "2026-10-26",
+  "scope": "PARTIAL_AOSP_EMULATOR_SYSTEM_PROBE_NOT_PHYSICAL_APP_ACCEPTANCE",
+  "appCommit": "418f8a1205af5ddfed4d674587538821401658b9",
+  "apkSha256": "dda89116060f011e790f2a6c3224878cac2fffeccec84b0f9120f21ab26d051c",
+  "environment": {
+    "sdk": "35",
+    "build": "Android/sdk_phone64_arm64/emu64a:15/AE3A.240806.019/12368160:userdebug/test-keys",
+    "model": "Android SDK built for arm64",
+    "emulator": "1",
+    "shellIdentity": "uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),1007(log),1011(adb),1015(sdcard_rw),1028(sdcard_r),1078(ext_data_rw),1079(ext_obb_rw),3001(net_bt_admin),3002(net_bt),3003(inet),3006(net_bw_stats),3009(readproc),3011(uhid),3012(readtracefs) context=u:r:shell:s0",
+    "selinux": "Enforcing",
+    "appPid": "2417"
+  },
+  "shizukuVersion": "13.6.0.r1086.2650830c",
+  "rootCommandsUsed": false,
+  "virtualDisplays": [
+    {
+      "displayId": 2,
+      "ownerUid": 2000,
+      "width": 720,
+      "height": 1280,
+      "density": 240,
+      "effectiveFlagsHex": "0x1880",
+      "requiredFlags": [
+        "TRUSTED",
+        "OWN_FOCUS",
+        "STEAL_TOP_FOCUS_DISABLED"
+      ]
+    },
+    {
+      "displayId": 3,
+      "ownerUid": 2000,
+      "width": 720,
+      "height": 1280,
+      "density": 240,
+      "effectiveFlagsHex": "0x1880",
+      "requiredFlags": [
+        "TRUSTED",
+        "OWN_FOCUS",
+        "STEAL_TOP_FOCUS_DISABLED"
+      ]
+    }
+  ],
+  "fixtureApps": {
+    "2": "com.android.contacts",
+    "3": "com.android.deskclock"
+  },
+  "observations": {
+    "permissionDialogDisplayId": 2,
+    "topFocusedDisplayIdDuringBackgroundApps": 0,
+    "preview": "Contacts permission dialog and contacts list rendered in workbench preview",
+    "takeoverUiChangedToHandback": true,
+    "afterReturn": {
+      "A": {
+        "displayId": 2,
+        "epoch": 2,
+        "owner": "AGENT"
+      },
+      "B": {
+        "displayId": 3,
+        "epoch": 0,
+        "owner": "AGENT"
+      }
+    },
+    "activityRecreatedWithSameProcess": true,
+    "appPidBeforeAndAfter": "2417",
+    "backgroundMainApp": "com.android.launcher3",
+    "foregroundServiceInBackground": true,
+    "virtualDisplaysSurvivedRecreationAndHome": true,
+    "imeSnapshot": {
+      "tokenDisplayId": 0,
+      "inputShown": false,
+      "scope": "SINGLE_SNAPSHOT_NO_CHINESE_COMPOSITION"
+    },
+    "stop": {
+      "bothDisplaysRemoved": true,
+      "foregroundServiceRemoved": true,
+      "topFocusedDisplayId": 0
+    },
+    "handoffScope": "UI_CONTROLLER_BIND_CONTROL_NO_ACTIVE_WORKFLOW"
+  },
+  "nativeTouch": {
+    "probeSha256": "98087270efd9a511a3c4e8d18152373555f7f07f36c8bc859af2fba925cd6d1a",
+    "reports": [
+      {
+        "scope": "EMULATOR_PRODUCTION_ADAPTER_OUTSIDE_BROKER",
+        "shellUid": 2000,
+        "displayId": 2,
+        "targetUid": 10112,
+        "failure": "IllegalArgumentException",
+        "cancelAccepted": false,
+        "downAccepted": false,
+        "upAccepted": false,
+        "case": "wrongUid"
+      },
+      {
+        "scope": "EMULATOR_PRODUCTION_ADAPTER_OUTSIDE_BROKER",
+        "shellUid": 2000,
+        "displayId": 2,
+        "targetUid": 10101,
+        "downAccepted": true,
+        "upAccepted": true,
+        "case": "matchingUid"
+      }
+    ]
+  },
+  "touchProbeSourceSha256": "d1d66a8a9d95ef39578ee27c58b8f9a3764389e6bb3e6ba57415519577530f7f",
+  "notRun": [
+    "physical Mate 60 Pro",
+    "real Gmail/Google Calendar GUI",
+    "online model",
+    "Chinese IME composition",
+    "model-driven workflow on a system device",
+    "overlay takeover gesture/text end-to-end on target Apps",
+    "latency and performance comparison",
+    "notification trigger and cloud sync",
+    "take-home demo recording"
+  ],
+  "limitations": [
+    "Userdebug AOSP image is root-capable; commands and Shizuku ran as shell UID 2000 with SELinux enforcing, never adb root.",
+    "Contacts/DeskClock were launched with test setup ADB commands into production-created displays; production Google package allowlist was not changed.",
+    "Native touch probe invokes the production DisplayTouchInjector outside SessionBroker and shell touch-stream guard; separate UI checks cover controller epoch handoff only.",
+    "One emulator run and selected snapshots, not statistical reliability or OEM compatibility."
+  ]
+}

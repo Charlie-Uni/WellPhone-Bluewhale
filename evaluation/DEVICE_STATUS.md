@@ -2,7 +2,7 @@
 
 2026-10-26：用户已授权恢复真机与在线验证。代码基准 a6e7b41，本地 321 项测试、APK/签名检查及 [GitHub CI](https://github.com/Charlie-Uni/WellPhone-Bluewhale/actions/runs/40256808455) 通过。
 
-本次 ADB 设备列表为空，电脑 USB 清单也未发现华为产品。只读预检结果是 BLOCKED，原因是没有一台已授权在线的 Android 手机；没有安装 APK、访问手机账号或发出在线模型请求。原始本地预检保存于 evaluation/runs/preflight-2026-10-26-resumed.json（忽略目录）。
+首次 ADB 设备列表为空，电脑 USB 清单也未发现华为产品；用户随后确认暂时无法连接手机。只读预检结果是 BLOCKED，原因是没有一台已授权在线的 Android 手机；未向物理手机安装 APK、访问账号或发出在线模型请求。之后新建了独立模拟器，完成 [部分系统层验证](EMULATOR_SMOKE.md)，该结果不视为手机准入通过。原始本地预检保存于 evaluation/runs/preflight-2026-10-26-resumed.json（忽略目录）。
 
 ## 继续条件与顺序
 
