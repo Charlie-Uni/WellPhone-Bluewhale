@@ -80,4 +80,8 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "octopus.db", nul
         // Strict schema excludes raw goal, observations, addresses, messages, keys and URL tokens.
         log.appendText("{\"monotonicMillis\":${SystemClock.elapsedRealtime()},\"event\":${Json.encodeToString(event)}}\n")
     }
+    @Synchronized fun journalSnapshot(): ByteArray {
+        require(!log.exists() || log.length() <= 8 * 1024 * 1024) { "Journal export size limit" }
+        return if (log.exists()) log.readBytes() else byteArrayOf()
+    }
 }

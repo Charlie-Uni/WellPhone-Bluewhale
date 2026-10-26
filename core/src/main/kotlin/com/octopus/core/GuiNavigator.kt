@@ -15,8 +15,10 @@ class GuiNavigator(
     private val actions: ActionPort, private val model: DecisionModel,
     private val clock: () -> Long, private val budget: GuiStepBudget = GuiStepBudget(),
     private val journal: EventJournal = EventJournal { },
+    private val pacer: ExecutionPacer = Unpaced,
 ) {
     suspend fun observe(token: SessionToken): Observation {
+        pacer.beforeObservation()
         val state = broker.state(token.sessionId)
         if (state.token != token || state.owner != Owner.AGENT) throw ActionRejected("Control changed")
         val observation = try { observer.observe(state) } catch (lost: BindingLost) {
@@ -29,7 +31,7 @@ class GuiNavigator(
         return observation
     }
     suspend fun act(token: SessionToken, observation: Observation, action: Action): Boolean {
-        require(clock() - observation.capturedAtMillis in 0..5_000)
+        awaitActionSlot(token, observation)
         broker.registerObservation(token, observation.observationId)
         val id = UUID.randomUUID().toString()
         val begin = clock()
@@ -39,6 +41,12 @@ class GuiNavigator(
         journal.record(AgentEvent(if (result) "ACTION_SETTLED" else "ACTION_REJECTED", token.sessionId,
             token.epoch, id, clock() - begin, observation.displayId, observation.packageName))
         return result
+    }
+    suspend fun awaitActionSlot(token: SessionToken, observation: Observation) {
+        pacer.beforeAction()
+        if (clock() - observation.capturedAtMillis !in 0..5_000) throw GuiNeedsUser("OBSERVATION_EXPIRED")
+        val state = broker.state(token.sessionId)
+        if (state.token != token || state.owner != Owner.AGENT) throw ActionRejected("Control changed while pacing")
     }
     suspend fun reach(
         token: SessionToken, goal: String,

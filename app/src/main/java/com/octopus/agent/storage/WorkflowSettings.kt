@@ -9,6 +9,8 @@ import kotlinx.serialization.json.Json
 @Serializable data class ModelSettings(val endpoint: String = "", val model: String = "")
 class WorkflowSettings(context: Context) {
     private val prefs = context.getSharedPreferences("workflow_settings", Context.MODE_PRIVATE)
+    fun adaptivePacing() = prefs.getBoolean("adaptive_pacing",true)
+    fun setAdaptivePacing(enabled: Boolean) { prefs.edit().putBoolean("adaptive_pacing",enabled).apply() }
     fun model(): ModelSettings = prefs.getString("model", null)?.let {
         runCatching { Json.decodeFromString<ModelSettings>(it) }.getOrNull()
     } ?: ModelSettings()

@@ -3,6 +3,7 @@ package com.octopus.agent.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.os.Bundle
 import android.os.SystemClock
+import android.os.PowerManager
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -29,15 +30,21 @@ class OctopusAccessibilityService : AccessibilityService(), ObservationPort, Act
     private data class NodeRef(val path: List<Int>, val viewId: String?, val className: String?, val text: String?)
     private data class Snapshot(val observation: Observation, val refs: Map<Int, NodeRef>)
     private val snapshots = mutableMapOf<String, Snapshot>()
+    val mainLoad by lazy { MainLoadReader({
+        if (instance !== this) throw BindingLost()
+        windowsOnAllDisplays[0].orEmpty()
+    }, { getSystemService(PowerManager::class.java).currentThermalStatus }, SystemClock::elapsedRealtime) }
     val humanText by lazy { HumanTextAccess((application as OctopusApplication).broker, { display ->
         if (instance !== this) throw BindingLost()
         windowsOnAllDisplays[display].orEmpty()
     }) }
 
     override fun onServiceConnected() { instance = this }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) { /* No main-screen content collection. */ }
-    override fun onInterrupt() { snapshots.clear(); humanText.clearAll() }
-    override fun onDestroy() { instance = null; snapshots.clear(); humanText.clearAll(); super.onDestroy() }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null) mainLoad.event(event.windowId, event.eventType)
+    }
+    override fun onInterrupt() { snapshots.clear(); humanText.clearAll(); mainLoad.reset() }
+    override fun onDestroy() { instance = null; snapshots.clear(); humanText.clearAll(); mainLoad.reset(); super.onDestroy() }
 
     /** Fast local hit-window check for human input; system dialogs and main-screen roots fail closed. */
     fun touchWindowId(session: SessionState, point: TouchPoint): Int {

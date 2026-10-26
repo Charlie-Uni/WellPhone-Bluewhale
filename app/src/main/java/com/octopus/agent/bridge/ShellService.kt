@@ -7,6 +7,8 @@ import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
+import android.media.Image
+import android.os.Looper
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -18,6 +20,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import kotlin.system.exitProcess
 import com.octopus.core.CalendarDraft
 import com.octopus.core.TargetKind
@@ -25,6 +28,8 @@ import com.octopus.core.TouchTarget
 import com.octopus.core.TouchPacket
 import com.octopus.core.TouchStreamGuard
 import com.octopus.core.TouchPhase
+import com.octopus.core.CaptureBudget
+import com.octopus.core.LatestResource
 import kotlinx.serialization.json.Json
 import java.time.Instant
 
@@ -37,13 +42,16 @@ class ShellService(context: Context) : IShellService.Stub() {
     private val shellContext = context.createPackageContext("com.android.shell", 0)
     private val displays = shellContext.getSystemService(DisplayManager::class.java)
     private val thread = HandlerThread("octopus-capture").apply { start() }
+    private data class EncodedFrame(val bytes: ByteArray, val at: Long, val ticket: Long)
     private data class Target(
         val display: VirtualDisplay, val reader: ImageReader,
-        @Volatile var frame: ByteArray? = null, @Volatile var lastCapture: Long = 0,
+        @Volatile var frame: EncodedFrame? = null,
         var sessionId: String? = null, var epoch: Long = -1, var agentAllowed: Boolean = false,
         val width: Int, val height: Int,
         var packageName: String? = null, var human: TouchTarget? = null,
         var humanUid: Int = -1, val touch: TouchStreamGuard = TouchStreamGuard(width, height),
+        val captureBudget: CaptureBudget = CaptureBudget(),
+        val latest: LatestResource<Image> = LatestResource(), @Volatile var closed: Boolean = false,
     )
     private val targets = linkedMapOf<String, Target>()
     private val touchInjector by lazy { DisplayTouchInjector() }
@@ -82,26 +90,14 @@ class ShellService(context: Context) : IShellService.Stub() {
                     Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).invoke(wm, vd.display.displayId, 2)
                 val target = Target(vd, reader, width = width, height = height)
                 val handle = UUID.randomUUID().toString()
-                targets[handle] = target
                 reader.setOnImageAvailableListener({ source ->
-                    // Always drain producer frames, even when nobody is watching.
-                    source.acquireLatestImage()?.use { image ->
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - target.lastCapture < 500) return@use
-                        target.lastCapture = now
-                        val plane = image.planes[0]
-                        val paddedWidth = plane.rowStride / plane.pixelStride
-                        val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
-                        padded.copyPixelsFromBuffer(plane.buffer)
-                        val cropped = Bitmap.createBitmap(padded, 0, 0, width, height)
-                        target.frame = ByteArrayOutputStream().use { stream ->
-                            cropped.compress(Bitmap.CompressFormat.JPEG, 65, stream)
-                            stream.toByteArray()
-                        }
-                        if (cropped !== padded) cropped.recycle()
-                        padded.recycle()
+                    if (!target.closed) source.acquireLatestImage()?.let { image ->
+                        // maxImages=3 leaves two slots for acquireLatestImage while retaining one.
+                        target.latest.replace(image)
+                        encodeLatest(target)
                     }
                 }, Handler(thread.looper))
+                targets[handle] = target
                 return JSONObject().put("handle", handle).put("displayId", vd.display.displayId)
                     .put("requestedFlags", flags).put("effectiveFlags", actual)
                     .put("width", width).put("height", height).put("imePolicy", "HIDE")
@@ -135,13 +131,47 @@ class ShellService(context: Context) : IShellService.Stub() {
             .put("bindingVerified", false).toString()
     }
 
+    private fun encodeLatest(target: Target) {
+        if (target.closed) return
+        target.latest.useCurrent { image ->
+            val now = SystemClock.elapsedRealtime()
+            val ticket = target.captureBudget.claim(now) ?: return@useCurrent
+            var padded: Bitmap? = null; var cropped: Bitmap? = null
+            try {
+                val plane = image.planes[0]
+                padded = Bitmap.createBitmap(plane.rowStride / plane.pixelStride, target.height, Bitmap.Config.ARGB_8888)
+                padded.copyPixelsFromBuffer(plane.buffer.duplicate().apply { rewind() })
+                cropped = Bitmap.createBitmap(padded, 0, 0, target.width, target.height)
+                val encoded = ByteArrayOutputStream().use { stream ->
+                    cropped.compress(Bitmap.CompressFormat.JPEG, 65, stream); stream.toByteArray()
+                }
+                if (target.captureBudget.mayPublish(ticket, SystemClock.elapsedRealtime()))
+                    target.frame = EncodedFrame(encoded, now, ticket)
+            } catch (_: Exception) { target.frame = null
+            } finally {
+                if (cropped !== padded) cropped?.recycle()
+                padded?.recycle()
+            }
+        }
+    }
     override fun capture(handle: String): ParcelFileDescriptor? {
-        val frame = synchronized(targets) { requireNotNull(targets[handle]).frame } ?: return null
+        val frame = synchronized(targets) { requireNotNull(targets[handle]).let {
+            val captured = it.frame
+            if (captured != null && it.captureBudget.current(captured.ticket, SystemClock.elapsedRealtime(), captured.at)) captured.bytes else null
+        } } ?: return null
         val pipe = ParcelFileDescriptor.createPipe()
         Thread {
             runCatching { ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(frame) } }
         }.start()
         return pipe[0]
+    }
+    override fun setCapturePolicy(handle: String, intervalMillis: Long, enabled: Boolean) {
+        synchronized(targets) {
+            val target = requireNotNull(targets[handle])
+            target.captureBudget.configure(enabled, intervalMillis, SystemClock.elapsedRealtime())
+            if (!enabled) target.frame = null
+            if (enabled) Handler(thread.looper).post { encodeLatest(target) }
+        }
     }
     override fun bindControl(handle: String, sessionId: String, epoch: Long, agentAllowed: Boolean) {
         synchronized(targets) {
@@ -190,12 +220,20 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
     override fun closeDisplay(handle: String) {
         val target = synchronized(targets) {
-            targets.remove(handle)?.also { cancelTouch(it); it.human = null }
+            targets.remove(handle)?.also { cancelTouch(it); it.human = null;it.closed = true }
         } ?: return
-        target.reader.setOnImageAvailableListener(null, null)
-        target.display.release()
-        target.reader.close()
         target.frame = null
+        val cleanup = {
+            target.reader.setOnImageAvailableListener(null, null)
+            target.latest.close()
+            target.display.release()
+            target.reader.close()
+        }
+        if (Looper.myLooper() == thread.looper) cleanup() else {
+            val settled = CountDownLatch(1)
+            check(Handler(thread.looper).post { try { cleanup() } finally { settled.countDown() } })
+            check(settled.await(3, TimeUnit.SECONDS)) { "Capture cleanup timed out" }
+        }
     }
     override fun bindHuman(handle: String, targetJson: String) = synchronized(targets) {
         check(Process.myUid() == 2000)

@@ -4,7 +4,8 @@
 
 | 模块 | 职责 | 当前接入方式 |
 | --- | --- | --- |
-| Coordinator / MailCalendarWorkflow | 一次计划、提取、确认、查重、写入与汇总 | 普通代码；WorkbenchViewModel 已接入 |
+| Coordinator / MailCalendarWorkflow | 一次计划、提取、确认、查重、写入与汇总 | 普通代码；WorkbenchController 已接入 |
+| Application / AgentSessionService | 持有控制器、用户启动的后台会话、停止清理 | specialUse 前台服务；页面退出不取消任务，系统重启不自动恢复 |
 | GuiNavigator | 新观察→单步决策→受控动作；加载/弹窗和预算 | core；生产工作流使用，AgentRunner 保留基础协议测试 |
 | SessionBroker | 会话身份、E、单写者、动作去重、接管排空 | core；所有输入通道必须经过同一仲裁 |
 | Accessibility | displayId/package/window 三重定位、带编号节点 | Android；主屏节点不作为默认回退 |
@@ -15,7 +16,7 @@
 | StatusCapsule / UserReviews | 状态胶囊、本地时间/冲突确认 | 已接入胶囊与虚拟屏小窗，人工触摸经过独立整段 Broker 准入 |
 | HumanTextController / HumanTextAccess | 本地草稿、字段身份、一次确认与读回 | 与触摸共用 Broker；临时本地编辑焦点，虚拟屏 IME 隐藏 |
 | WorkflowCheckpoint / CalendarRecovery | 本轮游标、人工改动核对与续跑 | 新 E、新观察与确认；HUMAN_HELD 防重建，userDraft 保留修订 |
-| LoadGovernor | 主屏输入/帧负载的低频元数据→取帧/动作节奏 | core 策略；真机信号待接入 |
+| MainLoadReader / LoadGovernor / AdaptivePacer | 主屏 IME/交互事件/温度元数据→观察/动作节奏 | 已接入；不读取主屏 root/text，实际表现待设备测量 |
 | Journal | 单调时钟、sessionId/E/actionId、状态与耗时 | 不记录邮件正文、密钥、完整链接 |
 
 ## 会话与动作
@@ -40,7 +41,7 @@ stateDiagram-v2
 
 新动作准入和计数原子完成。接管后的旧模型响应被 E 拒绝；系统已接受的动作不能撤销，排空结束前不授权人工。当前工作台可独立测试 A/B 撤销、排空与交还；单工作流遇到相关会话撤销会停止，不承诺另一个执行循环继续。小窗接管必须点击独立按钮；只读阶段的触摸不补发。关闭窗口不自动交还。用户把目标 App 打开到主屏导致绑定丢失时停掉失效会话，不追抢。
 
-胶囊与小窗都是非焦点悬浮窗口。用户点击胶囊查看现有虚拟屏，明确接管后才转发单指触摸；双击画面放大/缩小，隐藏不交还。确认卡由小窗“确认/设置”按钮进入。普通 Activity 的生命周期不保证长期后台驻留，进程退出后不自动恢复执行。详见 [触摸协议与边界](OVERLAY.md)。
+胶囊与小窗都是非焦点悬浮窗口。用户点击胶囊查看现有虚拟屏，明确接管后才转发单指触摸；双击画面放大/缩小，隐藏不交还。确认卡由小窗“确认/设置”按钮进入。Application 持有控制器与协程；可见工作台创建会话时先启动前台服务，启动失败就不创建显示。最后一个会话关闭、通知停止或服务中断时撤销输入并释放 shell；进程退出不自动恢复执行。见 [生命周期](LIFECYCLE.md)。详见 [触摸协议与边界](OVERLAY.md)。
 
 ## 事项与写入
 
@@ -66,7 +67,7 @@ TimeGrounding 独立于模型置信度：当前仅自动核对明确北京时间
 
 用户选择招聘标签；本地看最小必要 sender/subject 判断候选与敏感邮件，再允许正文读取。无法可靠识别时请求用户确认，宁可漏读。专用标签减少隐私风险，仍不能保证关键词过滤覆盖所有凭证类邮件。首屏收件箱截图与无关节点不得直接发模型。链接用本地 LINK 引用映射，日历私密标题替换为 busy，日志只留结构。
 
-LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信号和工作流。当前工作台预览约每秒请求一次帧，动作后固定等待，模型按需决策；不报告自适应收益。后续降频只减少保留、编码和模型请求，显示生产者缓冲仍须及时释放。
+MainLoadReader 仅使用 display 0 的窗口 ID/类型、交互事件类型与温度档位；这些是交互/热状态代理，不是其他 App 的帧时测量。LoadGovernor 每秒采样，未知、IME、近期交互或高温时保守，三次稳定采样后恢复正常。AdaptivePacer 在 A/B 共享观察/动作门；等待后检查 E 和新鲜度，过期保留检查点。可见性驱动 JPEG 编码，需求租约到期后停编码，生产者缓冲继续排空。工作台可选择固定频率实验组。详见 [PACING.md](PACING.md)，无真机性能收益结论。
 
 ## 精简接口
 
@@ -79,7 +80,7 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 | CanonicalStore / WriteStore | 来源快照、CAS 写入状态；中断后重跑查询恢复 |
 | ObservationPort / ActionPort | SessionState → Observation；SessionToken + observation + Action → 是否受理 |
 | HumanTextPort | capture → 本地字段草稿；replace → VERIFIED / UNKNOWN；clear 撤销；不自动提交 |
-| Shell AIDL | create/capture/close、bindControl、定向日历 Intent、bindHuman/injectTouch；无任意 shell 接口 |
+| Shell AIDL | create/capture/close、三秒 capture policy、bindControl、定向 Intent、bindHuman/injectTouch；无任意 shell 接口 |
 
 默认流程串行读取 A、消费结构化事项到 B。会话与端口已为第二执行 Agent 留出边界；并行队列和独立重调度尚未实现。
 
@@ -120,6 +121,8 @@ LoadGovernor 的 core 策略保留正常/保守档位，但尚未接入主屏信
 
 Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler 和 Native Graphics，31 项覆盖胶囊入口、接管、文字面板、双击、切任务、隐藏/旋转/权限变化与渲染。SDK 34/35 下另有 8 项触摸、30 项文字适配器、52 项恢复集成和 14 项只读日历查询，覆盖生产 GUI 端口/Navigator/Broker/SQLite/确认/CalendarConflictReader；系统回执、屏幕树和 Provider 游标为模拟。
 
+新增 8 项主屏元数据、8 项模型传输、2 项日志/设置和 10 项后台服务测试；模型连接与服务为模拟，完整套件见 [本地检查](../evaluation/LOCAL_CHECKS.md)。
+
 注入接收端与 displayId 元数据有显式测试 Shadow，窗口控制权由测试状态驱动；真实服务权限、InputDispatcher、主屏焦点及 OEM 行为仍在设备 AC01/AC08/AC11/AC12 验收。细节见 [OVERLAY.md](OVERLAY.md)。
 
 ## 原地文字修改
@@ -128,4 +131,4 @@ Robolectric 4.16.1 在 SDK 35 下运行生产窗口 View、MotionEvent、Handler
 
 HumanTextController 绑定 TouchTarget（sessionId/E/display/package/预览版本）并持有一次草稿。HumanTextAccess 只从目标显示最上层应用窗口枚举字段，排除密码、不可见、禁用、无 SET_TEXT 动作和超长字段。写回前核对窗口 ID、节点身份/路径、resourceId、类型、边界、原值和 120 秒期限，最后派发与控制权检查在 Main 连续执行。读回最多等待 250ms，只证明字段内容，不证明 App 保存或发出消息。
 
-切换任务、隐藏、缩放、配置变化和交还均撤销输入草稿；晚到读取不能重开编辑器。文字和整段触摸共用 humanAction，交还等待在途文字结算。UNKNOWN 消费草稿且不重放。交还增加 E，按当前目标类型读取支持的标题/备注/日期/时间/提醒/截止。事件读取唯一提前量控件；任务通知与截止分开，截止优先原生角色，否则读取结构化备注行，严格验证通知早于截止。只放行该类型支持的值变化，其余节点/布局仍封印。CalendarConflictReader 本机只读复查事件冲突，确认后再查，变化停住。确认卡显示新提醒/截止，userDraft 保存全部修订并清除旧冲突审批；保存后及重跑按新设置核实。主动 READ_CALENDAR 授权仍只用于冲突检查，本轮无新增权限。HUMAN_HELD 阻止重建，模糊页面保留现场，详见 [安全恢复](RESUME.md)。
+切换任务、隐藏、缩放、配置变化和交还均撤销输入草稿；晚到读取不能重开编辑器。文字和整段触摸共用 humanAction，交还等待在途文字结算。UNKNOWN 消费草稿且不重放。交还增加 E，按当前目标类型读取支持的标题/备注/日期/时间/提醒/截止。事件读取唯一提前量控件；任务通知与截止分开，截止优先原生角色，否则读取结构化备注行，严格验证通知早于截止。只放行该类型支持的值变化，其余节点/布局仍封印。CalendarConflictReader 本机只读复查事件冲突，确认后再查，变化停住。确认卡显示新提醒/截止，userDraft 保存全部修订并清除旧冲突审批；保存后及重跑按新设置核实。主动 READ_CALENDAR 授权仍只用于冲突检查。HUMAN_HELD 阻止重建，模糊页面保留现场，详见 [安全恢复](RESUME.md)。

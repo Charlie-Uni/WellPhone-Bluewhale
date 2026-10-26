@@ -58,6 +58,7 @@ class VirtualScreenOverlay(private val context: Context, private val callbacks: 
     }
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     private fun item() = items.firstOrNull { it.id == selected }
+    fun visibleSessionId(): String? = if (root != null) item()?.id else null
     fun update(next: List<Item>) {
         items = next
         if (selected !in next.map { it.id }) { resetInput(); selected = next.firstOrNull()?.id; lastBinding = null }

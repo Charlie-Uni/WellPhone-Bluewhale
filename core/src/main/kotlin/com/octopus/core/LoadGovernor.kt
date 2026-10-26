@@ -5,6 +5,7 @@ data class Pacing(val observationsPerSecond: Double, val actionGapMillis: Long, 
 class LoadGovernor {
     private var stableSamples = 0
     private var conservative = true
+    fun reset() { stableSamples = 0; conservative = true }
     fun sample(load: LoadSample): Pacing {
         if (!load.reliable || load.imeVisible || load.busy) {
             stableSamples = 0

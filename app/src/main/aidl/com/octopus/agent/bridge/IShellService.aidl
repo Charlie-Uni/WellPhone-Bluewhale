@@ -13,5 +13,6 @@ interface IShellService {
     void calendarInsert(String handle, String sessionId, long epoch, String draftJson) = 7;
     void bindHuman(String handle, String targetJson) = 8;
     boolean injectTouch(String handle, String targetJson, String packetJson) = 9;
+    void setCapturePolicy(String handle, long intervalMillis, boolean enabled) = 10;
     void destroy() = 16777114;
 }

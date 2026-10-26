@@ -1,6 +1,6 @@
 # 悬浮小窗与原地接管
 
-状态：代码已接入，140 项 core 行为测试、135 项 Robolectric Android 层测试与 Android 构建验证；真实系统触摸、焦点、IME 和 ROM 兼容性按用户要求暂缓。没有新建设备演示或流畅度数据。
+状态：代码已接入，150 项 core 行为测试、163 项 Robolectric Android 层测试与 Android 构建验证；真实系统触摸、焦点、IME 和 ROM 兼容性按用户要求暂缓。没有新建设备演示或流畅度数据。
 
 ## 用户路径
 
@@ -67,7 +67,7 @@
 | SDK 34/35 恢复集成 | 26 个用例 × 2 个 SDK = 52 项；生产 CalendarGuiPort/Navigator/Broker/SQLite/确认端口，模拟 GUI/shell/模型/动作，检查新日期/跨日时间保存重开、保留字段、新票据、角色核实和未知保护 |
 | SDK 34/35 只读冲突查询 | 7 个用例 × 2 个 SDK = 14 项；生产 CalendarConflictReader + 合成 Provider 游标，检查新时间、账号范围、全天/重复实例、自身排除、权限与覆盖失败 |
 
-另有 10 项 core 文字控制器测试，使用真实 SessionBroker 和模拟端口，验证晚到读取、一次草稿、并发名额、另一会话和交还后的新观察。窗口测试通过测试数据驱动控制权状态并记录回调；未把真实 WorkbenchViewModel、Shizuku 和目标 App 连起来。WindowManager/InputManager、无障碍树与动作回执由 Shadow 模拟。Robolectric 默认 MotionEvent 未实现 displayId 存取，本仓库为该元数据添加了明确的 Shadow；因此参数测试验证的是适配器契约，系统接收、权限和焦点仍待实测。
+另有 10 项 core 文字控制器测试，使用真实 SessionBroker 和模拟端口，验证晚到读取、一次草稿、并发名额、另一会话和交还后的新观察。窗口测试通过测试数据驱动控制权状态并记录回调；未把真实 WorkbenchController、Shizuku 和目标 App 连起来。WindowManager/InputManager、无障碍树与动作回执由 Shadow 模拟。Robolectric 默认 MotionEvent 未实现 displayId 存取，本仓库为该元数据添加了明确的 Shadow；因此参数测试验证的是适配器契约，系统接收、权限和焦点仍待实测。
 
 渲染图在 app/build/reports/overlay/compact.png、expanded.png、text-editor.png，背景为带文字标记的合成虚拟屏；仅检查布局和绘制，不是设备或 App 执行证据。测试有中心像素/控件边界断言，并查看了输出图中的字段、按钮与黑边。GitHub CI 保存同一套 HTML 报告与 PNG。
 

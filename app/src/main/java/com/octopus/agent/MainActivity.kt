@@ -28,19 +28,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.octopus.agent.workflow.UserQuestion
 import com.octopus.agent.storage.ModelSettings
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.octopus.core.Owner
 import kotlin.math.cos
 import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
+    private val workbench by lazy { (application as OctopusApplication).controller }
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val journalExport = registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-ndjson")) {
+        if(it != null) workbench.exportJournal(it)
+    }
+    override fun onStart() { super.onStart();workbench.setWorkbenchVisible(true) }
+    override fun onStop() { workbench.setWorkbenchVisible(false);super.onStop() }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(
                 primary = Color(0xFF255D50), background = Color(0xFFF5F3EE), surface = Color.White)) {
-                Workbench(onCalendarRead = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
+                Workbench(vm = workbench, onExport = { journalExport.launch("octopus-events.jsonl") },
+                    onCalendarRead = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
                     onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     onOverlay = { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName"))) })
@@ -49,7 +55,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun Workbench(onCalendarRead: () -> Unit, onAccessibility: () -> Unit, onOverlay: () -> Unit, vm: WorkbenchViewModel = viewModel()) {
+@Composable private fun Workbench(onExport: () -> Unit, onCalendarRead: () -> Unit, onAccessibility: () -> Unit, onOverlay: () -> Unit, vm: WorkbenchController) {
     val state by vm.state.collectAsState()
     var config by remember { mutableStateOf(state.config) }
     var endpoint by remember { mutableStateOf(state.model.endpoint) }
@@ -71,6 +77,9 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("平台预检", style = MaterialTheme.typography.titleMedium)
                     Text(state.message)
+                    Text(if(state.pacingConservative)"后台采用保守频率"else"后台采用正常频率",style = MaterialTheme.typography.bodySmall)
+                    if(state.sessions.isNotEmpty()) OutlinedButton(onClick = vm::stopSessions,enabled = !state.busy) { Text("停止后台会话") }
+                    OutlinedButton(onClick = onExport,enabled = !state.busy) { Text("导出脱敏评估日志") }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::connect, enabled = !state.busy) { Text("连接 Shizuku") }
                         OutlinedButton(onClick = onAccessibility) { Text("开启无障碍") }
@@ -86,33 +95,41 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("模型与读取范围", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS Chat Completions 完整地址") },
-                        enabled = !state.running && !state.resumePending, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(model, { model = it }, label = { Text("模型名称") }, enabled = !state.running && !state.resumePending)
+                        enabled = !state.running && !state.resumePending && !state.modelChecking, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(model, { model = it }, label = { Text("模型名称") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(apiKey, { apiKey = it }, label = { Text(if (state.keySaved) "更新 API Key（留空保留）" else "API Key") },
-                        visualTransformation = PasswordVisualTransformation(), enabled = !state.running && !state.resumePending)
+                        visualTransformation = PasswordVisualTransformation(), enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.mailAccount, { config = config.copy(mailAccount = it) },
-                        label = { Text("邮箱账号") }, enabled = !state.running && !state.resumePending)
+                        label = { Text("邮箱账号") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.recruitmentLabel, { config = config.copy(recruitmentLabel = it) },
-                        label = { Text("Gmail 招聘标签名") }, enabled = !state.running && !state.resumePending)
+                        label = { Text("Gmail 招聘标签名") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.calendarAccount, { config = config.copy(calendarAccount = it) },
-                        label = { Text("日历账号") }, enabled = !state.running && !state.resumePending)
+                        label = { Text("日历账号") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.calendarName, { config = config.copy(calendarName = it) },
-                        label = { Text("目标日历名称（与界面一致）") }, enabled = !state.running && !state.resumePending)
+                        label = { Text("目标日历名称（与界面一致）") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.taskListName, { config = config.copy(taskListName = it) },
-                        label = { Text("目标任务列表名称（与界面一致）") }, enabled = !state.running && !state.resumePending)
+                        label = { Text("目标任务列表名称（与界面一致）") }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                     OutlinedTextField(config.goal, { config = config.copy(goal = it) },
-                        label = { Text("自然语言任务") }, enabled = !state.running && !state.resumePending, modifier = Modifier.fillMaxWidth())
+                        label = { Text("自然语言任务") }, enabled = !state.running && !state.resumePending && !state.modelChecking, modifier = Modifier.fillMaxWidth())
                     Button({
                         vm.configure(ModelSettings(endpoint, model), config, apiKey); apiKey = ""
-                    }, enabled = !state.running && !state.resumePending) { Text("保存配置到手机") }
+                    }, enabled = !state.running && !state.resumePending && !state.modelChecking) { Text("保存配置到手机") }
+                    OutlinedButton(vm::testModelConnection,enabled = !state.running && !state.resumePending && !state.modelChecking &&
+                        state.keySaved && endpoint == state.model.endpoint && model == state.model.model) { Text("测试已保存的模型连接") }
+                    state.modelCheckMessage?.let { Text(it,style = MaterialTheme.typography.bodySmall) }
+                    if(state.modelChecking) TextButton(vm::cancelModelCheck) { Text("取消连接测试") }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(authorized, { authorized = it }, enabled = !state.running && !state.resumePending)
+                        Switch(state.adaptivePacing,vm::setAdaptivePacing,enabled = !state.running && !state.resumePending && !state.modelChecking)
+                        Text(if(state.adaptivePacing)"自适应后台节奏"else"固定频率（实验对照）")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(authorized, { authorized = it }, enabled = !state.running && !state.resumePending && !state.modelChecking)
                         Text("本轮允许读取该标签中的招聘邮件，并按确认结果创建日程或任务。", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button({
                             vm.start(config.copy(scopeAuthorized = authorized)); authorized = false
-                        }, enabled = !state.running && !state.resumePending && state.connected && state.sessions.size == 2 &&
+                        }, enabled = !state.running && !state.resumePending && !state.modelChecking && state.connected && state.sessions.size == 2 &&
                             authorized && state.keySaved && endpoint == state.model.endpoint && model == state.model.model) {
                             Text("开始整理")
                         }
@@ -165,8 +182,8 @@ class MainActivity : ComponentActivity() {
                         Text("工作台预览只读；悬浮小窗支持接管后的单指触摸", style = MaterialTheme.typography.bodySmall)
                         OutlinedButton({ vm.openPreview(probe.state.token.sessionId) }) { Text("在小窗查看此任务") }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton({ vm.launch(probe) }, enabled = !state.running && !state.resumePending && !state.busy && probe.state.owner != Owner.STOPPED) { Text("打开 App") }
-                            OutlinedButton({ vm.observe(probe) }, enabled = !state.running && !state.resumePending && !state.busy && probe.state.owner != Owner.STOPPED) { Text("读控件") }
+                            OutlinedButton({ vm.launch(probe) }, enabled = !state.running && !state.resumePending && !state.modelChecking && !state.busy && probe.state.owner != Owner.STOPPED) { Text("打开 App") }
+                            OutlinedButton({ vm.observe(probe) }, enabled = !state.running && !state.resumePending && !state.modelChecking && !state.busy && probe.state.owner != Owner.STOPPED) { Text("读控件") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (probe.state.owner == Owner.AGENT) {
@@ -174,7 +191,7 @@ class MainActivity : ComponentActivity() {
                             } else if (probe.state.owner == Owner.HUMAN) {
                                 Button({ vm.returnControl(probe) }, enabled = !state.busy) { Text("交还 Agent") }
                             }
-                            TextButton({ vm.close(probe) }, enabled = !state.running && !state.resumePending && !state.busy) { Text("释放屏幕") }
+                            TextButton({ vm.close(probe) }, enabled = !state.running && !state.resumePending && !state.modelChecking && !state.busy) { Text("释放屏幕") }
                         }
                     }
                 }

@@ -4,7 +4,7 @@
 
 Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。
 
-**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 140 项 core 行为测试及 135 项 Robolectric Android 层测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
+**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 150 项 core、163 项 Robolectric Android 层和 8 项评估工具测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
 ## 场景与第一版范围
 
@@ -28,7 +28,8 @@ Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是
 ```mermaid
 flowchart TB
   User[用户：主屏继续使用手机] --> Capsule[状态胶囊：点击打开虚拟屏小窗]
-  Capsule --> Workflow[普通代码 MailCalendarWorkflow]
+  Capsule --> Host[Application 控制器 / 用户启动的前台服务]
+  Host --> Workflow[普通代码 MailCalendarWorkflow]
   Workflow --> Plan[开始时一次计划调用]
   Workflow --> Extract[招聘邮件提取 / 本地时间证据检查]
   Workflow --> Review[本地时间与冲突确认]
@@ -49,7 +50,7 @@ flowchart TB
   Broker --> Journal[脱敏日志]
 ```
 
-默认一名执行 Agent：先读授权范围，再逐项在 B 创建；A/B 分别拥有 sessionId、E 和窗口绑定。应用级 Mutex 保证日历只有一个写入者。首先验收“主屏用户与后台任务并行”；双执行 Agent、主屏负载信号和调速接入留待后续实验。
+默认一名执行 Agent：先读授权范围，再逐项在 B 创建；A/B 分别拥有 sessionId、E 和窗口绑定。应用级 Mutex 保证日历只有一个写入者。主屏交互元数据和温度档位已接入保守/正常节奏，A/B 共用观察及动作准入门；双执行 Agent 留作扩展。代码交付与设备最终验收见 [交付说明](docs/DELIVERY.md)。
 
 | 选择 | 原因与代价 |
 | --- | --- |
@@ -58,6 +59,7 @@ flowchart TB
 | 虚拟屏 + Shizuku shell，非 Root | 争取输入与焦点隔离；必须实测有效 display flags、App 多屏和 ROM 行为 |
 | 事件用 ACTION_INSERT 预填，GUI 核对保存 | 避开脆弱日期选择器；不把直接写 Calendar Provider 当作 GUI 完成 |
 | 恢复使用 CalendarContract 只读冲突查询 | 不导航离开人工未保存表单；需主动授权 READ_CALENDAR，只覆盖该账号本机已同步的可见日历 |
+| 应用级控制器 + 用户启动前台服务 | 页面生命周期与后台任务分离；安静通知与停止入口，系统终止后重新授权 |
 | 一次计划调用 + 单执行 Agent | 减少编排和调试成本，明确动作责任 |
 | 会话控制代次 E | 接管立即拒绝旧指令；已提交的系统调用仍要等待结束 |
 
@@ -100,14 +102,16 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 工作台配置步骤：
 
-1. 连接 Shizuku、开启无障碍，创建 A/B，在真实预览中完成 Gmail/Calendar 登录和必要权限准备。
-2. 填写模型完整 HTTPS Chat Completions 地址、模型名称和 API Key；服务须支持 JSON object 响应。保存后密钥只留在手机 Keystore 加密存储中。尚未在线验证任何供应商。
+1. 在可见工作台连接 Shizuku、开启无障碍，创建 A/B（同时启动后台会话服务），在真实预览中完成 Gmail/Calendar 登录和必要权限准备。可随时点“停止后台会话”释放全部显示；通知可见时也提供停止入口。
+2. 填写模型完整 HTTPS Chat Completions 地址、模型名称和 API Key；服务须支持 JSON object 响应。保存后密钥只留在手机 Keystore 加密存储中。可主动测试已保存连接，仅发送合成任务，不操作 App；测试可取消。尚未在线验证任何供应商。
 3. 填写与 App 界面一致的账号、招聘标签、日历名称和任务列表名称，输入目标；本轮勾选授权，开始整理。
 4. 开启胶囊后点击打开悬浮小窗；默认只读，可切换 A/B。点击“原地接管当前任务”，待在途操作结束后单指操作；双击画面或点击按钮放大/缩小。
 5. 在目标 App 打开编辑页，点“输入文字”，选择字段并修改。可先自行保存，也可将当前事项的表单交还，核对后在本地确认由 Agent 保存。
 6. 小窗“确认/设置”由用户主动进入工作台处理确认卡。隐藏保留接管；交还全部相关会话后自动重新观察，沿用能核对的修改，继续本轮未完成事项。无法识别的编辑页保留现场，请先手动处理。可点“结束本轮”退出，再次开始需要重新授权。
 
 首次设备实验使用专用测试标签和日历。显示创建成功只证明拿到了虚拟屏；有效 flags、前台中文输入、声音和弹窗仍须单独验证。
+
+工作台默认“自适应后台节奏”，只使用主屏窗口类型、交互事件类型和温度元数据；不会读取主屏文字或截图。信号缺失、输入法出现、近期交互或温度升高时保守。无人查看虚拟屏时停止 JPEG 编码；只读显示缓冲仍排空。策略参数与未知边界见 [PACING.md](docs/PACING.md)。固定频率开关仅用于对照实验，需在本轮任务开始前选择；不报告设备性能收益。
 
 ## 悬浮小窗的交互边界
 
@@ -121,7 +125,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 本轮任务在接管时保留检查点。交还后重新读取当前页面，保留支持的标题、备注、日期、时间、提醒和截止设置。事件采用控件中的新提前量；任务分别读取通知时间与截止，提醒必须严格早于新截止。没有独立截止控件时，读取备注中唯一完整的“截止：”行；原邮件提取快照保持。新设置在确认卡单独展示，不填回旧值。事件继续按新时间复查冲突，确认后再查一次，再保存并重开核实；已保存事项只核实。无效或模糊时间、夏令时歧义、账号变化、来源标记丢失或未知保存保留页面。修订持久化用于后续去重，旧冲突审批失效。字段与备注的优先级及兼容边界见 [安全恢复](docs/RESUME.md)。
 
-以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入、中文键盘和 ROM 兼容性均待真机验收。普通 Activity/ViewModel 不保证长期后台驻留，进程退出后不自动恢复。31 项 SDK 35 窗口集成测试、8 项 SDK 34/35 触摸契约测试、30 项文字适配器、52 项恢复集成和 14 项只读日历查询测试；输出小窗/放大窗口/文字面板的合成渲染图。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
+以上是已编译接入的实现约束，实际触摸、焦点、UID 定向注入、中文键盘和 ROM 兼容性均待真机验收。执行控制器归 Application 持有；用户在可见工作台创建会话时启动前台服务，切走/重建页面不取消任务。服务终止会撤销输入并关闭会话，进程退出后不自动恢复；OEM 后台行为待验证，见 [运行生命周期](docs/LIFECYCLE.md)。31 项 SDK 35 窗口集成测试、8 项 SDK 34/35 触摸契约测试、30 项文字适配器、52 项恢复集成和 14 项只读日历查询测试；输出小窗/放大窗口/文字面板的合成渲染图。设计与测试细节见 [小窗与触摸](docs/OVERLAY.md)。
 
 ## 不打扰与隐私
 
@@ -135,9 +139,11 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 统一采用 [AC01–AC12](evaluation/README.md)。自动化单元测试与真实 App 验收分开报告，未测项标为“待验证”。真实评估比较无 Agent、固定频率、负载调速三组，每组至少三轮，统计结果正确率、核实完成时间、前台 jank、接管耗时、错误路由与重复写入。
 
-本地结果：**140 项 core 行为测试与 135 项 Android 层测试通过，调试 APK 构建与签名校验通过**。包括邮件到日历、去重、未知保存恢复、文字修改、交还后的新观察/票据、保留修订与剩余事项继续。core 使用模拟端口与合成控件树；Android 层运行生产 View、适配器、GUI 端口、Navigator、Broker 和本地存储。窗口、无障碍树/回执、shell、模型决定和输入接收端由测试模拟；未连通真实 WorkbenchViewModel→Shizuku→App，不能报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
+离线准备：python3 tools/prepare_demo.py --output evaluation/runs/demo 生成三封合成 .eml、冲突 .ics 和预期结果，不发送邮件。可用 --start-date YYYY-MM-DD 推迟首封面试日期并重新换算夏令时。手机可主动导出脱敏日志，tools/summarize_events.py 分别统计动作/模型耗时及工作流记录的核实结果。tools/local_evaluation.py 从实际 JUnit/lint/APK 生成证据摘要，--include-tools 同时执行工具测试；GitHub CI 归档同一份摘要。
 
-交付物：可构建仓库、APK、完整原始录屏与 90–120 秒演示、实测结果、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。当前不报告设备成功率和性能收益。
+本地结果：**321 项测试通过（150 项 core、163 项 Android 层、8 项评估工具），调试 APK 构建与签名校验通过**。包括邮件到日历、去重、未知保存恢复、文字修改、交还后的新观察/票据、保留修订与剩余事项继续。core 使用模拟端口与合成控件树；Android 层运行生产 View、适配器、GUI 端口、Navigator、Broker 和本地存储。窗口、无障碍树/回执、shell、模型决定和输入接收端由测试模拟；未连通真实 WorkbenchController→Shizuku→App，不能报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
+
+已交付：可构建仓库、调试 APK、本地评估、演示准备器、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。题目还需同机真实执行的原始录屏、90–120 秒演示与实测结果；这些随真机验证暂缓，不报告设备成功率和性能收益。
 
 技术答辩可按 [30 分钟提纲](docs/DEFENSE.md) 展开。
 

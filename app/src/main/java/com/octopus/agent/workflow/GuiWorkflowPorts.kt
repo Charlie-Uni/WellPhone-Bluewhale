@@ -121,6 +121,7 @@ class CalendarGuiPort(
     private suspend fun shellAction(block: () -> Unit) {
         val observation = navigator.observe(token)
         if (recoveryRead && ResumeEvidence.contentEditor(observation)) throw GuiNeedsUser("RESUME_EDITOR_OPEN")
+        navigator.awaitActionSlot(token, observation)
         broker.registerObservation(token, observation.observationId)
         broker.agentAction(token, UUID.randomUUID().toString(), observation.observationId) {
             withContext(Dispatchers.IO) { block() }

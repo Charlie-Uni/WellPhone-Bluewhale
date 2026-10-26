@@ -57,6 +57,6 @@ WriteLedger 增加 HUMAN_HELD：尚未 Save 的已准备事项接管后进入此
 
 core 测试覆盖中断、检查点、新日期/提醒/截止、原生角色与备注两条路径、严格先后关系、跨日/夏令时、修订持久化/去重、冲突复查、剩余事项、Save 未知只查和 Broker 双排空屏障。
 
-Android 测试使用生产 CalendarGuiPort、GuiNavigator、SessionBroker、本地存储及 CalendarConflictReader；模拟 shell、界面树、模型决定、动作回执和 Provider 游标。恢复新增事件提醒变动、通知/截止角色与备注路径的保存/重开、无效先后关系、确认后截止再变、人工已保存和重跑旧截止拒绝。未运行真实系统 CalendarProvider；窗口按钮仍只记录回调，未连通真实 WorkbenchViewModel→Shizuku→App。
+Android 测试使用生产 CalendarGuiPort、GuiNavigator、SessionBroker、本地存储及 CalendarConflictReader；模拟 shell、界面树、模型决定、动作回执和 Provider 游标。恢复新增事件提醒变动、通知/截止角色与备注路径的保存/重开、无效先后关系、确认后截止再变、人工已保存和重跑旧截止拒绝。未运行真实系统 CalendarProvider；窗口按钮仍只记录回调，未连通真实 WorkbenchController→Shizuku→App。
 
 真机继续跳过。真实 Gmail/Calendar 字段、保存回执、加载/弹窗、主屏焦点和键盘、进程回收恢复均未验收。最终计数、构建与签名见 [本地检查](../evaluation/LOCAL_CHECKS.md)。
