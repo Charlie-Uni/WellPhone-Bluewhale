@@ -4,7 +4,7 @@
 
 Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是一个根据实时第三方 App 界面行动的 Android Agent。
 
-**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 150 项 core、163 项 Robolectric Android 层和 8 项评估工具测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；真机测试按用户要求暂缓。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
+**已接通邮件→事项提取→确认/冲突→日历或任务→重开核实，以及小窗接管、文字修改、交还后核对续跑的代码路径，通过 150 项 core、163 项 Robolectric Android 层和 8 项评估工具测试。真实 Gmail/Calendar、在线模型和主屏并行体验尚未验证；现已恢复真机/在线验收，等待设备接入，见 [验收状态](evaluation/DEVICE_STATUS.md)。** 实现进度见 [TASKS.md](TASKS.md)，可复现结果见 [本地检查](evaluation/LOCAL_CHECKS.md)。
 
 ## 场景与第一版范围
 
@@ -19,7 +19,7 @@ Whaletech take-home 项目，仓库沿用 WellPhone-Bluewhale 名称。目标是
 
 候选 App 为 Gmail 和 Google Calendar（含 Tasks 界面）。Android 15/16 原生或接近原生系统优先，Android 14 为最低编译支持范围，**不代表已验证兼容**。登录、权限准备由用户完成。普通用户通过 Shizuku 无线调试配对启动 shell 服务，手机直接访问模型 API；电脑用于开发、观测与录屏。
 
-候选真机是 **华为 Mate 60 Pro，系统分支与版本待确认**。按用户要求跳过设备确认与实测；设备准入仍保留普通 APK、ADB、Shizuku、实际 Android API level 与显示隔离检查。
+候选真机是 **华为 Mate 60 Pro，系统分支与版本待确认**。用户已授权恢复设备与在线验证；当前电脑未识别到 ADB 设备，设备准入仍保留普通 APK、ADB、Shizuku、实际 Android API level 与显示隔离检查。
 
 本次暂不包含招聘 App 筛选、支付、自动回信、自动扫描新邮件、复杂动画、ETA、前台协作模式、Root、通用任意 App 控制。API/IMAP 读邮件仅作为未来可选对照组。
 
@@ -143,7 +143,7 @@ python3 tools/device_preflight.py --output evaluation/runs/preflight.json
 
 本地结果：**321 项测试通过（150 项 core、163 项 Android 层、8 项评估工具），调试 APK 构建与签名校验通过**。包括邮件到日历、去重、未知保存恢复、文字修改、交还后的新观察/票据、保留修订与剩余事项继续。core 使用模拟端口与合成控件树；Android 层运行生产 View、适配器、GUI 端口、Navigator、Broker 和本地存储。窗口、无障碍树/回执、shell、模型决定和输入接收端由测试模拟；未连通真实 WorkbenchController→Shizuku→App，不能报告设备成功率。详见 [本地检查记录](evaluation/LOCAL_CHECKS.md)。
 
-已交付：可构建仓库、调试 APK、本地评估、演示准备器、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。题目还需同机真实执行的原始录屏、90–120 秒演示与实测结果；这些随真机验证暂缓，不报告设备成功率和性能收益。
+已交付：可构建仓库、调试 APK、本地评估、演示准备器、关键取舍和 [AI 协作记录](docs/AI_COLLABORATION.md)。题目还需同机真实执行的原始录屏、90–120 秒演示与实测结果；这些等待设备接入后验证，不报告设备成功率和性能收益。
 
 技术答辩可按 [30 分钟提纲](docs/DEFENSE.md) 展开。
 

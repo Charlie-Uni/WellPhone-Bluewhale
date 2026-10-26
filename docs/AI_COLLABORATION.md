@@ -158,3 +158,5 @@
 真实构建问题：模型测试的 contentType 属性与 URLConnection.getContentType 产生 JVM 签名冲突，改名为 responseType；同步目录再次产生重复 dataless class/dex，定位读取线程和具体文件后终止本次构建，用 Gradle clean 重建，未删除源码。
 
 最终套件数量、签名、lint 与 APK 指纹以 [本地检查](../evaluation/LOCAL_CHECKS.md) 为准。新服务测试使用 Robolectric，系统焦点、后台驻留、真实输入和录像不能由这些测试证明。AI 生成的说明必须与可复现产物一致，未运行项保留在 AC 表。
+
+用户随后授权恢复真机与在线验证。实际检查 ADB 和 USB 后均未发现手机，已记录 [当前验收状态](../evaluation/DEVICE_STATUS.md) 并请求连接设备；没有将先前的离线结果改写为真机成绩。密钥只在手机本地配置。

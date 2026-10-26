@@ -67,7 +67,7 @@ def collect(root, signer=None, include_tools=False):
         "androidBuild": {**artifact(apk, root), "assembleDebug": "PASSED", "signatureVerification": signature},
         "lint": {"severities": dict(severity), "issues": dict(Counter(issue.attrib["id"] for issue in issues))},
         "renders": [{**artifact(path, root), "source": "SYNTHETIC_ROBOLECTRIC_NATIVE"} for path in sorted((root / "app/build/reports/overlay").glob("*.png"))],
-        "deviceEvaluation": "SKIPPED_AT_USER_REQUEST",
+        "deviceEvaluation": "NOT_RUN_LOCAL_EVIDENCE_ONLY",
         "onlineModelEvaluation": "NOT_RUN",
         "performanceEvaluation": "NOT_RUN_NO_DEVICE_METRICS",
         "ci": "Consult the commit-specific GitHub Actions result",

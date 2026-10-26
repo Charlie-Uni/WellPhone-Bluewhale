@@ -1,5 +1,5 @@
 {
-  "recordedAtUTC": "2026-10-26T01:56:46.462437+00:00",
+  "recordedAtUTC": "2026-10-26T02:04:40.870805+00:00",
   "scope": "LOCAL_JUNIT_ROBOLECTRIC_SYNTHETIC_SERVICES_GUI_PROVIDER_AND_HTTPS_CONNECTIONS",
   "coreTests": {
     "tests": 150,
@@ -47,7 +47,7 @@
   },
   "totalTests": 321,
   "source": {
-    "head": "a03071b8412cd7dc91e7d7171dab6c8a1450e514",
+    "head": "a6e7b41706be78c17f20f5ddca1bd0f972dfe409",
     "workingTreeDirty": true
   },
   "androidBuild": {
@@ -90,7 +90,7 @@
       "source": "SYNTHETIC_ROBOLECTRIC_NATIVE"
     }
   ],
-  "deviceEvaluation": "SKIPPED_AT_USER_REQUEST",
+  "deviceEvaluation": "NOT_RUN_LOCAL_EVIDENCE_ONLY",
   "onlineModelEvaluation": "NOT_RUN",
   "performanceEvaluation": "NOT_RUN_NO_DEVICE_METRICS",
   "ci": "Consult the commit-specific GitHub Actions result"
